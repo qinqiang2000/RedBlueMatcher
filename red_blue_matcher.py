@@ -399,6 +399,30 @@ def load_blues_by_sku_batch(conn,
     return dict(blue_pool)
 
 
+def load_batch_worker(task_args):
+    """
+    并发加载蓝票批次的工作函数
+    
+    Args:
+        task_args: (salertaxno, buyertaxno, batch_sku_list)
+        
+    Returns:
+        (batch_result, elapsed_time)
+    """
+    salertaxno, buyertaxno, batch = task_args
+    
+    # 每个线程创建独立的数据库连接
+    conn = get_db_connection()
+    try:
+        start_time = time.time()
+        result = load_blues_by_sku_batch(conn, salertaxno, buyertaxno, batch)
+        elapsed = time.time() - start_time
+        return result, elapsed
+    finally:
+        conn.close()
+
+
+
 def match_group_worker(args: Tuple) -> Tuple[List[dict], int, int]:
     """
     多进程匹配工作函数（顶层函数，满足pickle要求）
@@ -865,6 +889,10 @@ def run_matching_algorithm(conn, test_limit: Optional[int] = None) -> List[Match
     batch_count = 0
     total_rows = 0
 
+    # 准备所有批次任务
+    batch_tasks = []
+    BATCH_SIZE = 1000
+    
     for salertaxno, buyertaxno in seller_buyer_pairs:
         # 提取该销购方对下的所有SKU
         sku_set = set()
@@ -873,27 +901,49 @@ def run_matching_algorithm(conn, test_limit: Optional[int] = None) -> List[Match
                 sku_set.add((spbm, taxrate))
 
         sku_list = list(sku_set)
+        if not sku_list:
+            continue
+            
         print(f"  销购方对: 需要加载 {len(sku_list)} 个SKU")
 
-        # 分批加载（每批1000个SKU）
-        BATCH_SIZE = 1000
+        # 生成批次
         for i in range(0, len(sku_list), BATCH_SIZE):
-            batch_start_time = time.time()
             batch = sku_list[i:i+BATCH_SIZE]
-            batch_result = load_blues_by_sku_batch(conn, salertaxno, buyertaxno, batch)
-            batch_elapsed = time.time() - batch_start_time
+            batch_tasks.append((salertaxno, buyertaxno, batch))
 
-            # 统计本批数据量
-            batch_rows = sum(len(items) for items in batch_result.values())
-            total_rows += batch_rows
-            batch_count += 1
-
-            # 合并到总池中，key调整为 (salertaxno, buyertaxno, spbm, taxrate)
-            for (spbm, taxrate), items in batch_result.items():
-                full_key = (salertaxno, buyertaxno, spbm, taxrate)
-                blue_pool[full_key] = items
-
-            print(f"    批次 {batch_count}: {len(batch)} SKUs, {batch_rows} 行蓝票, {batch_elapsed:.2f}秒")
+    print(f"  共生成 {len(batch_tasks)} 个加载批次，准备并发加载...")
+    
+    # 使用线程池并发加载
+    # IO密集型任务，线程数可以设大一点，例如 CPU核数 * 2 或更多
+    max_workers = min(32, (os.cpu_count() or 4) * 4) 
+    
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # 提交所有任务
+        future_to_batch = {
+            executor.submit(load_batch_worker, task): task 
+            for task in batch_tasks
+        }
+        
+        # 处理结果
+        for future in as_completed(future_to_batch):
+            salertaxno, buyertaxno, batch = future_to_batch[future]
+            try:
+                batch_result, elapsed = future.result()
+                
+                # 统计
+                batch_rows = sum(len(items) for items in batch_result.values())
+                total_rows += batch_rows
+                batch_count += 1
+                
+                # 合并到总池
+                for (spbm, taxrate), items in batch_result.items():
+                    full_key = (salertaxno, buyertaxno, spbm, taxrate)
+                    blue_pool[full_key] = items
+                
+                print(f"    批次加载完成: {len(batch)} SKUs, {batch_rows} 行蓝票, {elapsed:.2f}秒")
+                
+            except Exception as exc:
+                print(f"    批次加载异常: {exc}")
 
     perf.stop("批量加载蓝票")
     print(f"蓝票池加载完成: {batch_count} 批次, {total_rows} 行蓝票数据, {len(blue_pool)} 组")
@@ -1180,11 +1230,15 @@ def main():
 
     args = parse_arguments()
 
-    # 构建输出文件路径
+    # 构建输出文件路径（添加日期和时间）
     if args.output.startswith('/'):
         output_file = args.output
     else:
-        output_file = f'/Users/qinqiang02/colab/codespace/python/RedBlueMatcher/output/{args.output}'
+        # 生成带有日期和时间（到秒）的文件名
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename_base = os.path.splitext(args.output)[0]
+        filename_ext = os.path.splitext(args.output)[1]
+        output_file = f'/Users/qinqiang02/colab/codespace/python/RedBlueMatcher/output/{filename_base}_{timestamp}{filename_ext}'
 
     # 确保输出目录存在
     output_dir = os.path.dirname(output_file)
