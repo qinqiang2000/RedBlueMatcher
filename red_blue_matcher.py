@@ -15,11 +15,17 @@ import csv
 import psycopg2
 import argparse
 import os
+import time
 from decimal import Decimal, ROUND_HALF_UP
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import List, Dict, Tuple, Optional
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Lock
+from multiprocessing import Pool, cpu_count
+import numpy as np
+from performance_tracker import PerformanceTracker
 
 
 # 数据库连接配置
@@ -211,7 +217,7 @@ def load_candidate_blues(conn, salertaxno: str, buyertaxno: str,
           AND COALESCE(vi.fspbm, '') = %s
           AND COALESCE(vi.ftaxrate, '0.13') = %s
           AND vi.fitemremainredamount > 0
-        ORDER BY vi.fitemremainredamount DESC, v.fissuetime ASC
+        ORDER BY vi.fitemremainredamount DESC, v.fissuetime ASC, vi.fentryid ASC
     """
 
     items = []
@@ -232,6 +238,326 @@ def load_candidate_blues(conn, salertaxno: str, buyertaxno: str,
             ))
 
     return items
+
+
+def load_blue_worker(key: Tuple[str, str, str, str]) -> Tuple[Tuple[str, str, str, str], List[BlueInvoiceItem]]:
+    """
+    并发加载蓝票的工作线程函数
+    每个线程创建独立的数据库连接（psycopg2连接非线程安全）
+
+    Args:
+        key: (salertaxno, buyertaxno, spbm, taxrate)
+
+    Returns:
+        (key, candidates): 原始key和查询结果
+    """
+    conn = get_db_connection()
+    try:
+        salertaxno, buyertaxno, spbm, taxrate = key
+        candidates = load_candidate_blues(conn, salertaxno, buyertaxno, spbm, taxrate)
+        return key, candidates
+    finally:
+        conn.close()
+
+
+def load_blues_batch_by_seller_buyer(conn, seller_buyer_pairs: set) -> Dict[Tuple[str, str, str, str], List[BlueInvoiceItem]]:
+    """
+    按(销方,购方)批量加载蓝票，减少SQL查询次数
+
+    Args:
+        conn: 数据库连接
+        seller_buyer_pairs: {(salertaxno, buyertaxno), ...} 唯一的销购方组合集合
+
+    Returns:
+        {(salertaxno, buyertaxno, spbm, taxrate): [BlueInvoiceItem]}
+    """
+    if not seller_buyer_pairs:
+        return {}
+
+    # 构建 WHERE IN 条件
+    pairs_list = list(seller_buyer_pairs)
+    placeholders = ', '.join(['(%s, %s)'] * len(pairs_list))
+    params = []
+    for s, b in pairs_list:
+        params.extend([s, b])
+
+    sql = f"""
+        SELECT
+            v.fid,
+            vi.fentryid,
+            v.finvoiceno,
+            COALESCE(vi.fspbm, '') as fspbm,
+            COALESCE(vi.fgoodsname, '') as fgoodsname,
+            COALESCE(vi.ftaxrate, '0.13') as ftaxrate,
+            vi.fitemremainredamount,
+            vi.fitemremainrednum,
+            vi.fredprice,
+            v.fissuetime,
+            v.fsalertaxno,
+            v.fbuyertaxno
+        FROM t_sim_vatinvoice_1201 v
+        JOIN t_sim_vatinvoice_item_1201 vi ON v.fid = vi.fid
+        WHERE v.fissuetype = '0'
+          AND v.finvoicestatus IN ('0', '2')
+          AND (v.fsalertaxno, v.fbuyertaxno) IN ({placeholders})
+          AND vi.fitemremainredamount > 0
+        ORDER BY v.fsalertaxno, v.fbuyertaxno, vi.fitemremainredamount DESC, v.fissuetime ASC, vi.fentryid ASC
+    """
+
+    # 执行查询并按 (salertaxno, buyertaxno, spbm, taxrate) 分组
+    blue_pool: Dict[Tuple[str, str, str, str], List[BlueInvoiceItem]] = defaultdict(list)
+
+    with conn.cursor() as cur:
+        cur.execute(sql, params)
+        for row in cur.fetchall():
+            item = BlueInvoiceItem(
+                fid=row[0],
+                fentryid=row[1],
+                finvoiceno=row[2],
+                fspbm=row[3],
+                fgoodsname=row[4],
+                ftaxrate=row[5],
+                fitemremainredamount=Decimal(str(row[6])),
+                fitemremainrednum=Decimal(str(row[7])),
+                fredprice=Decimal(str(row[8])) if row[8] else Decimal('0'),
+                fissuetime=row[9]
+            )
+            key = (row[10], row[11], row[3], row[5])  # salertaxno, buyertaxno, spbm, taxrate
+            blue_pool[key].append(item)
+
+    return dict(blue_pool)
+
+
+def load_blues_by_sku_batch(conn,
+                            salertaxno: str,
+                            buyertaxno: str,
+                            sku_list: List[Tuple[str, str]]) -> Dict[Tuple[str, str], List[BlueInvoiceItem]]:
+    """
+    按SKU列表批量加载蓝票（分批优化版本）
+
+    Args:
+        conn: 数据库连接
+        salertaxno: 销方税号
+        buyertaxno: 购方税号
+        sku_list: [(spbm, taxrate), ...] SKU和税率的组合列表
+
+    Returns:
+        {(spbm, taxrate): [BlueInvoiceItem]}
+    """
+    if not sku_list:
+        return {}
+
+    # 构建WHERE IN条件 - 针对(fspbm, ftaxrate)
+    placeholders = ', '.join(['(%s, %s)'] * len(sku_list))
+    params = [salertaxno, buyertaxno]
+    for spbm, taxrate in sku_list:
+        params.extend([spbm, taxrate])
+
+    sql = f"""
+        SELECT
+            v.fid,
+            vi.fentryid,
+            v.finvoiceno,
+            COALESCE(vi.fspbm, '') as fspbm,
+            COALESCE(vi.fgoodsname, '') as fgoodsname,
+            COALESCE(vi.ftaxrate, '0.13') as ftaxrate,
+            vi.fitemremainredamount,
+            vi.fitemremainrednum,
+            vi.fredprice,
+            v.fissuetime
+        FROM t_sim_vatinvoice_1201 v
+        JOIN t_sim_vatinvoice_item_1201 vi ON v.fid = vi.fid
+        WHERE v.fissuetype = '0'
+          AND v.finvoicestatus IN ('0', '2')
+          AND v.fsalertaxno = %s
+          AND v.fbuyertaxno = %s
+          AND (vi.fspbm, vi.ftaxrate) IN ({placeholders})
+          AND vi.fitemremainredamount > 0
+        ORDER BY vi.fitemremainredamount DESC, v.fissuetime ASC, vi.fentryid ASC
+    """
+
+    blue_pool: Dict[Tuple[str, str], List[BlueInvoiceItem]] = defaultdict(list)
+
+    with conn.cursor() as cur:
+        cur.execute(sql, params)
+        for row in cur.fetchall():
+            item = BlueInvoiceItem(
+                fid=row[0],
+                fentryid=row[1],
+                finvoiceno=row[2],
+                fspbm=row[3],
+                fgoodsname=row[4],
+                ftaxrate=row[5],
+                fitemremainredamount=Decimal(str(row[6])),
+                fitemremainrednum=Decimal(str(row[7])),
+                fredprice=Decimal(str(row[8])) if row[8] else Decimal('0'),
+                fissuetime=row[9]
+            )
+            key = (row[3], row[5])  # (spbm, taxrate)
+            blue_pool[key].append(item)
+
+    return dict(blue_pool)
+
+
+def match_group_worker(args: Tuple) -> Tuple[List[dict], int, int]:
+    """
+    多进程匹配工作函数（顶层函数，满足pickle要求）
+    处理单个分组的所有负数单据匹配
+
+    Args:
+        args: (group_key, neg_items_data, blue_candidates_data)
+              group_key: (salertaxno, buyertaxno, spbm, taxrate)
+              neg_items_data: List[dict] - 负数单据数据（已序列化）
+              blue_candidates_data: List[dict] - 蓝票数据（已序列化）
+
+    Returns:
+        (local_results_data, matched_count, failed_count)
+        local_results_data 为 dict 列表，便于跨进程传输
+    """
+    group_key, neg_items_data, blue_candidates_data = args
+    spbm, taxrate = group_key[2], group_key[3]
+
+    # 反序列化数据为对象
+    neg_items = [NegativeItem(**d) for d in neg_items_data]
+    blue_candidates = [BlueInvoiceItem(**d) for d in blue_candidates_data]
+
+    # 构建本地蓝票池（该组独占，无需同步）
+    temp_pool = {(spbm, taxrate): blue_candidates}
+
+    local_results = []
+    seq_counter = [0]  # 本地序号，后续统一重编
+    matched_count = 0
+    failed_count = 0
+
+    for neg in neg_items:
+        # 启用延迟校验模式（skip_validation=True），Phase 2 再批量校验
+        success = match_single_negative(neg, temp_pool, local_results, seq_counter, skip_validation=True)
+        if success:
+            matched_count += 1
+        else:
+            failed_count += 1
+
+    # 将结果转换为 dict 列表便于跨进程传输
+    results_data = [
+        {
+            'seq': r.seq,
+            'sku_code': r.sku_code,
+            'blue_fid': r.blue_fid,
+            'blue_entryid': r.blue_entryid,
+            'remain_amount_before': r.remain_amount_before,
+            'unit_price': r.unit_price,
+            'matched_amount': r.matched_amount,
+            'negative_fid': r.negative_fid,
+            'negative_entryid': r.negative_entryid,
+            'blue_invoice_no': r.blue_invoice_no,
+            'goods_name': r.goods_name,
+            'fissuetime': r.fissuetime
+        }
+        for r in local_results
+    ]
+
+    return results_data, matched_count, failed_count
+
+
+def negative_item_to_dict(item: NegativeItem) -> dict:
+    """将 NegativeItem 转换为 dict，用于多进程序列化"""
+    return {
+        'fid': item.fid,
+        'fentryid': item.fentryid,
+        'fbillno': item.fbillno,
+        'fspbm': item.fspbm,
+        'fgoodsname': item.fgoodsname,
+        'ftaxrate': item.ftaxrate,
+        'famount': item.famount,
+        'fnum': item.fnum,
+        'ftax': item.ftax,
+        'fsalertaxno': item.fsalertaxno,
+        'fbuyertaxno': item.fbuyertaxno
+    }
+
+
+def blue_item_to_dict(item: BlueInvoiceItem) -> dict:
+    """将 BlueInvoiceItem 转换为 dict，用于多进程序列化"""
+    return {
+        'fid': item.fid,
+        'fentryid': item.fentryid,
+        'finvoiceno': item.finvoiceno,
+        'fspbm': item.fspbm,
+        'fgoodsname': item.fgoodsname,
+        'ftaxrate': item.ftaxrate,
+        'fitemremainredamount': item.fitemremainredamount,
+        'fitemremainrednum': item.fitemremainrednum,
+        'fredprice': item.fredprice,
+        'fissuetime': item.fissuetime,
+        '_current_remain_amount': item._current_remain_amount,
+        '_current_remain_num': item._current_remain_num
+    }
+
+
+def find_exact_match(target_amount: Decimal,
+                     candidates: List[BlueInvoiceItem]) -> Optional[int]:
+    """
+    使用NumPy向量化查找精确匹配的蓝票索引
+
+    Args:
+        target_amount: 目标金额（正数）
+        candidates: 候选蓝票列表
+
+    Returns:
+        精确匹配的蓝票在candidates中的索引，未找到返回None
+    """
+    if not candidates:
+        return None
+
+    # 转换为NumPy数组（放大10000倍转为整数避免浮点误差）
+    SCALE = 10000
+    target_scaled = int(target_amount * SCALE)
+
+    # 构建金额数组（仅包含有余额的蓝票）
+    amounts_scaled = np.array(
+        [int(b.current_remain_amount * SCALE) for b in candidates],
+        dtype=np.int64
+    )
+
+    # 向量化精确查找
+    exact_indices = np.where(amounts_scaled == target_scaled)[0]
+
+    if len(exact_indices) > 0:
+        # 返回第一个精确匹配的索引
+        return int(exact_indices[0])
+
+    return None
+
+
+def find_near_matches(target_amount: Decimal,
+                      candidates: List[BlueInvoiceItem],
+                      tolerance: Decimal = AMOUNT_TOLERANCE) -> List[int]:
+    """
+    使用NumPy向量化查找近似匹配的蓝票索引（在容差范围内）
+
+    Args:
+        target_amount: 目标金额（正数）
+        candidates: 候选蓝票列表
+        tolerance: 容差范围
+
+    Returns:
+        近似匹配的蓝票索引列表
+    """
+    if not candidates:
+        return []
+
+    SCALE = 10000
+    target_scaled = int(target_amount * SCALE)
+    tolerance_scaled = int(tolerance * SCALE)
+
+    amounts_scaled = np.array(
+        [int(b.current_remain_amount * SCALE) for b in candidates],
+        dtype=np.int64
+    )
+
+    # 向量化查找容差范围内的匹配
+    near_indices = np.where(np.abs(amounts_scaled - target_scaled) <= tolerance_scaled)[0]
+    return near_indices.tolist()
 
 
 def validate_tail_diff(amount: Decimal, quantity: Decimal,
@@ -259,10 +585,47 @@ def validate_tail_diff(amount: Decimal, quantity: Decimal,
     return True, "校验通过"
 
 
+def batch_validate_results(results: List[MatchResult],
+                           default_tax_rate: Decimal = Decimal('0.13')) -> Tuple[List[MatchResult], List[MatchResult]]:
+    """
+    批量校验匹配结果（两阶段校验的Phase 2）
+
+    Args:
+        results: 待校验的匹配结果列表
+        default_tax_rate: 默认税率
+
+    Returns:
+        (valid_results, invalid_results): 校验通过和未通过的结果
+    """
+    valid_results = []
+    invalid_results = []
+
+    for r in results:
+        # 计算数量
+        if r.unit_price > 0:
+            qty = (r.matched_amount / r.unit_price).quantize(Decimal('0.0000000000001'), ROUND_HALF_UP)
+        else:
+            qty = Decimal('0')
+
+        # 估算税额
+        est_tax = (r.matched_amount * default_tax_rate).quantize(Decimal('0.01'), ROUND_HALF_UP)
+
+        # 校验
+        ok, msg = validate_tail_diff(r.matched_amount, qty, r.unit_price, est_tax, default_tax_rate)
+
+        if ok:
+            valid_results.append(r)
+        else:
+            invalid_results.append(r)
+
+    return valid_results, invalid_results
+
+
 def match_single_negative(negative: NegativeItem,
                           blue_pool: Dict[Tuple[str, str], List[BlueInvoiceItem]],
                           results: List[MatchResult],
-                          seq_counter: List[int]) -> bool:
+                          seq_counter: List[int],
+                          skip_validation: bool = False) -> bool:
     """
     为单个负数明细匹配蓝票
 
@@ -271,6 +634,7 @@ def match_single_negative(negative: NegativeItem,
         blue_pool: 蓝票池 {(spbm, taxrate): [BlueInvoiceItem]}
         results: 匹配结果列表
         seq_counter: 序号计数器 [当前序号]
+        skip_validation: 是否跳过尾差校验（两阶段校验优化）
 
     Returns:
         是否匹配成功
@@ -288,7 +652,45 @@ def match_single_negative(negative: NegativeItem,
     target_amount = abs(negative.famount)
     remaining_amount = target_amount
 
-    # 遍历候选蓝票进行匹配
+    # 快速路径：NumPy向量化精确匹配
+    # 如果能找到金额完全相等的蓝票，直接使用，无需校验
+    exact_idx = find_exact_match(target_amount, candidates)
+    if exact_idx is not None:
+        blue = candidates[exact_idx]
+        if blue.current_remain_amount > Decimal('0'):
+            unit_price = blue.effective_price
+            if unit_price > 0:
+                # 精确匹配：使用蓝票全部余额
+                final_match_amount = blue.current_remain_amount
+                final_match_num = blue.current_remain_num
+
+                # 记录匹配前的余额
+                remain_before = blue.current_remain_amount
+
+                # 扣减蓝票余额
+                blue.deduct(final_match_amount, final_match_num)
+
+                # 记录匹配结果
+                seq_counter[0] += 1
+                results.append(MatchResult(
+                    seq=seq_counter[0],
+                    sku_code=negative.fspbm,
+                    blue_fid=blue.fid,
+                    blue_entryid=blue.fentryid,
+                    remain_amount_before=remain_before,
+                    unit_price=unit_price,
+                    matched_amount=final_match_amount,
+                    negative_fid=negative.fid,
+                    negative_entryid=negative.fentryid,
+                    blue_invoice_no=blue.finvoiceno,
+                    goods_name=negative.fgoodsname,
+                    fissuetime=blue.fissuetime
+                ))
+
+                # 精确匹配一次性完成
+                return True
+
+    # 常规路径：遍历候选蓝票进行贪心匹配
     for blue in candidates:
         if remaining_amount <= Decimal('0'):
             break
@@ -329,33 +731,41 @@ def match_single_negative(negative: NegativeItem,
         if int_match_amount <= blue.current_remain_amount + AMOUNT_TOLERANCE:
              # 如果不是吃光模式，且整数金额超过了剩余需求太多，也不行 (比如需求100，算出105，不行)
              if not (not is_flush and int_match_amount > remaining_amount + AMOUNT_TOLERANCE):
-                 # 校验通过尾差规则
-                 # 估算税额
-                 tax_rate = Decimal(blue.ftaxrate) if blue.ftaxrate else Decimal('0.13')
-                 est_tax = (int_match_amount * tax_rate).quantize(Decimal('0.01'), ROUND_HALF_UP)
-                 
-                 valid, msg = validate_tail_diff(int_match_amount, int_qty, unit_price, est_tax, tax_rate)
-                 if valid and int_qty > Decimal('0'):  # 确保整数数量非零
-                     final_match_amount = int_match_amount
-                     final_match_num = int_qty
-                     use_integer = True
+                 # 校验通过尾差规则（如果启用延迟校验则跳过）
+                 if skip_validation:
+                     # 延迟校验模式：直接使用整数方案
+                     if int_qty > Decimal('0'):
+                         final_match_amount = int_match_amount
+                         final_match_num = int_qty
+                         use_integer = True
+                 else:
+                     # 估算税额
+                     tax_rate = Decimal(blue.ftaxrate) if blue.ftaxrate else Decimal('0.13')
+                     est_tax = (int_match_amount * tax_rate).quantize(Decimal('0.01'), ROUND_HALF_UP)
+
+                     valid, msg = validate_tail_diff(int_match_amount, int_qty, unit_price, est_tax, tax_rate)
+                     if valid and int_qty > Decimal('0'):  # 确保整数数量非零
+                         final_match_amount = int_match_amount
+                         final_match_num = int_qty
+                         use_integer = True
 
         # 3. 如果整数方案不可行，回退到精确小数方案
         if not use_integer:
             # 直接使用 raw_match_amount，计算精确数量
             final_match_amount = raw_match_amount
             final_match_num = (final_match_amount / unit_price).quantize(Decimal('0.0000000000001'), ROUND_HALF_UP)
-            
-            # 再校验一次尾差 (理论上应该过，但为了保险)
-            tax_rate = Decimal(blue.ftaxrate) if blue.ftaxrate else Decimal('0.13')
-            est_tax = (final_match_amount * tax_rate).quantize(Decimal('0.01'), ROUND_HALF_UP)
-            valid, msg = validate_tail_diff(final_match_amount, final_match_num, unit_price, est_tax, tax_rate)
-            
-            if not valid:
-                # 极其罕见情况：小数方案也不满足尾差公式（数学上几乎不可能，除非精度极差）
-                # 尝试微调金额? 暂时跳过此蓝票
-                print(f"    跳过蓝票 {blue.fid}: 无法满足尾差校验 ({msg})")
-                continue
+
+            # 再校验一次尾差（如果启用延迟校验则跳过）
+            if not skip_validation:
+                tax_rate = Decimal(blue.ftaxrate) if blue.ftaxrate else Decimal('0.13')
+                est_tax = (final_match_amount * tax_rate).quantize(Decimal('0.01'), ROUND_HALF_UP)
+                valid, msg = validate_tail_diff(final_match_amount, final_match_num, unit_price, est_tax, tax_rate)
+
+                if not valid:
+                    # 极其罕见情况：小数方案也不满足尾差公式（数学上几乎不可能，除非精度极差）
+                    # 尝试微调金额? 暂时跳过此蓝票
+                    print(f"    跳过蓝票 {blue.fid}: 无法满足尾差校验 ({msg})")
+                    continue
 
         # 吃光策略修正：如果剩余极其微小，视为0 (防止0.01残留)
         if abs(blue.current_remain_amount - final_match_amount) < AMOUNT_TOLERANCE:
@@ -411,6 +821,10 @@ def run_matching_algorithm(conn, test_limit: Optional[int] = None) -> List[Match
     Returns:
         匹配结果列表
     """
+    # 初始化性能追踪器
+    perf = PerformanceTracker()
+    perf.start("总耗时")
+
     print("=" * 60)
     if test_limit:
         print(f"负数发票自动匹蓝算法 - 开始执行 (测试模式: 仅处理前 {test_limit} 条)")
@@ -419,65 +833,134 @@ def run_matching_algorithm(conn, test_limit: Optional[int] = None) -> List[Match
     print("=" * 60)
 
     # 1. 加载负数单据
+    perf.start("加载负数单据")
     negative_items = load_negative_items(conn, limit=test_limit)
+    perf.stop("加载负数单据")
     if not negative_items:
         print("没有待处理的负数单据")
         return []
 
     # 2. 按(销方税号, 购方税号, 商品编码, 税率)分组
+    perf.start("数据分组")
     groups: Dict[Tuple[str, str, str, str], List[NegativeItem]] = defaultdict(list)
     for item in negative_items:
         key = (item.fsalertaxno, item.fbuyertaxno, item.fspbm, item.ftaxrate)
         groups[key].append(item)
+    perf.stop("数据分组")
 
     print(f"分组数量: {len(groups)}")
 
-    # 3. 构建蓝票池（按销购方+商品编码+税率索引）
-    # 先获取所有需要的组合键
-    unique_keys = set()
+    # 3. 构建蓝票池（按SKU分批加载优化）
+    perf.start("批量加载蓝票")
+
+    # 提取所有唯一的(salertaxno, buyertaxno)
+    seller_buyer_pairs = set()
     for (salertaxno, buyertaxno, spbm, taxrate) in groups.keys():
-        unique_keys.add((salertaxno, buyertaxno, spbm, taxrate))
+        seller_buyer_pairs.add((salertaxno, buyertaxno))
 
-    print(f"需要加载 {len(unique_keys)} 组蓝票候选池")
+    print(f"需要加载 {len(seller_buyer_pairs)} 对销购方的蓝票（SKU分批加载模式）")
 
-    # 蓝票池: {(salertaxno, buyertaxno, spbm, taxrate): [BlueInvoiceItem]}
+    # 对于每个销购方对，按SKU分批加载
     blue_pool: Dict[Tuple[str, str, str, str], List[BlueInvoiceItem]] = {}
+    batch_count = 0
+    total_rows = 0
 
-    for idx, (salertaxno, buyertaxno, spbm, taxrate) in enumerate(unique_keys):
-        candidates = load_candidate_blues(conn, salertaxno, buyertaxno, spbm, taxrate)
-        blue_pool[(salertaxno, buyertaxno, spbm, taxrate)] = candidates
-        if (idx + 1) % 100 == 0:
-            print(f"  已加载 {idx + 1}/{len(unique_keys)} 组蓝票...")
+    for salertaxno, buyertaxno in seller_buyer_pairs:
+        # 提取该销购方对下的所有SKU
+        sku_set = set()
+        for (s, b, spbm, taxrate) in groups.keys():
+            if s == salertaxno and b == buyertaxno:
+                sku_set.add((spbm, taxrate))
 
-    print(f"蓝票池加载完成")
+        sku_list = list(sku_set)
+        print(f"  销购方对: 需要加载 {len(sku_list)} 个SKU")
 
-    # 4. 执行匹配
+        # 分批加载（每批1000个SKU）
+        BATCH_SIZE = 1000
+        for i in range(0, len(sku_list), BATCH_SIZE):
+            batch_start_time = time.time()
+            batch = sku_list[i:i+BATCH_SIZE]
+            batch_result = load_blues_by_sku_batch(conn, salertaxno, buyertaxno, batch)
+            batch_elapsed = time.time() - batch_start_time
+
+            # 统计本批数据量
+            batch_rows = sum(len(items) for items in batch_result.values())
+            total_rows += batch_rows
+            batch_count += 1
+
+            # 合并到总池中，key调整为 (salertaxno, buyertaxno, spbm, taxrate)
+            for (spbm, taxrate), items in batch_result.items():
+                full_key = (salertaxno, buyertaxno, spbm, taxrate)
+                blue_pool[full_key] = items
+
+            print(f"    批次 {batch_count}: {len(batch)} SKUs, {batch_rows} 行蓝票, {batch_elapsed:.2f}秒")
+
+    perf.stop("批量加载蓝票")
+    print(f"蓝票池加载完成: {batch_count} 批次, {total_rows} 行蓝票数据, {len(blue_pool)} 组")
+
+    # 4. 多进程并发执行匹配
     results: List[MatchResult] = []
-    seq_counter = [0]  # 使用列表以便在函数中修改
-
     matched_count = 0
     failed_count = 0
 
-    # 转换蓝票池的key格式以便匹配
-    blue_pool_by_spbm_tax: Dict[Tuple[str, str, str, str], List[BlueInvoiceItem]] = blue_pool
-
+    # 准备多进程任务参数（需要序列化为dict）
+    perf.start("准备匹配任务")
+    match_tasks = []
     for group_key, neg_items in groups.items():
-        salertaxno, buyertaxno, spbm, taxrate = group_key
+        blue_candidates = blue_pool.get(group_key, [])
+        # 序列化为 dict 列表，便于跨进程传输
+        neg_items_data = [negative_item_to_dict(n) for n in neg_items]
+        blue_candidates_data = [blue_item_to_dict(b) for b in blue_candidates]
+        match_tasks.append((group_key, neg_items_data, blue_candidates_data))
+    perf.stop("准备匹配任务")
 
-        # 创建一个临时的池，只包含当前商品编码和税率的蓝票
-        temp_pool = {(spbm, taxrate): blue_pool_by_spbm_tax.get(group_key, [])}
+    print(f"开始多进程匹配 {len(match_tasks)} 组...")
 
-        for neg in neg_items:
-            success = match_single_negative(neg, temp_pool, results, seq_counter)
-            if success:
-                matched_count += 1
-            else:
-                failed_count += 1
+    # 使用多进程池并发匹配（绕过GIL，真正并行）
+    perf.start("多进程匹配")
+    num_workers = max(1, min(cpu_count() - 1, len(match_tasks)))
+    with Pool(processes=num_workers) as pool:
+        results_list = pool.map(match_group_worker, match_tasks)
+
+    # 合并结果
+    for results_data, local_matched, local_failed in results_list:
+        # 将 dict 转换回 MatchResult 对象
+        for rd in results_data:
+            results.append(MatchResult(**rd))
+        matched_count += local_matched
+        failed_count += local_failed
+    perf.stop("多进程匹配")
+
+    print(f"  Phase 1 匹配完成: {len(match_tasks)} 组, {len(results)} 条记录")
+
+    # 5. Phase 2: 批量校验（两阶段校验优化）
+    perf.start("Phase 2 批量校验")
+    print("开始 Phase 2 批量校验...")
+    valid_results, invalid_results = batch_validate_results(results)
+    perf.stop("Phase 2 批量校验")
+
+    if invalid_results:
+        print(f"  警告: {len(invalid_results)} 条记录未通过尾差校验（已过滤）")
+
+    # 使用校验通过的结果
+    results = valid_results
+
+    # 6. 统一重新编号（因为并发执行导致序号乱序）
+    for idx, result in enumerate(results, start=1):
+        result.seq = idx
+
+    # 停止总计时
+    perf.stop("总耗时")
 
     print(f"\n匹配完成:")
     print(f"  成功: {matched_count}")
     print(f"  失败: {failed_count}")
     print(f"  生成匹配记录: {len(results)}")
+    if invalid_results:
+        print(f"  校验过滤: {len(invalid_results)}")
+
+    # 打印性能摘要
+    perf.print_summary()
 
     return results
 
@@ -572,8 +1055,10 @@ def aggregate_results(raw_results: List[MatchResult]) -> List[MatchResult]:
     规则: 按 (blue_fid, blue_entryid) 进行合并
     验证: 合并后的总金额和总税额必须再次满足尾差校验
     """
+    start_time = time.time()
+
     print("\n正在聚合匹配结果...")
-    
+
     # Key: (blue_fid, blue_entryid)
     # Value: List[MatchResult]
     grouped: Dict[Tuple[int, int], List[MatchResult]] = defaultdict(list)
@@ -644,8 +1129,11 @@ def aggregate_results(raw_results: List[MatchResult]) -> List[MatchResult]:
             goods_name=first_item.goods_name
         )
         aggregated_results.append(agg_item)
-        
+
+    elapsed = time.time() - start_time
     print(f"聚合完成: 原始记录 {len(raw_results)} -> 聚合后 {len(aggregated_results)}")
+    print(f"  耗时: {elapsed:.2f}秒")
+
     return aggregated_results
 
 
@@ -688,6 +1176,8 @@ def parse_arguments():
 
 def main():
     """主函数"""
+    overall_start = time.time()
+
     args = parse_arguments()
 
     # 构建输出文件路径
@@ -710,8 +1200,11 @@ def main():
             # 执行聚合
             final_results = aggregate_results(results)
 
-            # 导出CSV
+            # 导出CSV（带单独计时）
+            export_start = time.time()
             export_to_csv(final_results, output_file)
+            export_elapsed = time.time() - export_start
+            print(f"CSV导出耗时: {export_elapsed:.2f}秒")
 
             # 打印统计
             print_statistics(final_results) # 统计使用的是聚合后的数据
@@ -724,6 +1217,10 @@ def main():
                 print("=" * 60)
 
         conn.close()
+
+        overall_elapsed = time.time() - overall_start
+        print(f"\n🎯 总执行时间: {overall_elapsed:.2f}秒")
+
         print("\n算法执行完成!")
 
     except Exception as e:
