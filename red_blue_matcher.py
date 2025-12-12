@@ -28,6 +28,12 @@ import numpy as np
 from performance_tracker import PerformanceTracker
 
 
+def log(msg: str):
+    """带时间戳的日志输出"""
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    print(f"[{timestamp}] {msg}")
+
+
 # 数据库连接配置
 DB_CONFIG = {
     'host': 'localhost',
@@ -183,9 +189,9 @@ def load_negative_items(conn, limit: Optional[int] = None) -> List[NegativeItem]
             ))
 
     if limit is not None:
-        print(f"加载了 {len(items)} 条待处理负数单据明细（测试模式: LIMIT {limit}）")
+        log(f"加载了 {len(items)} 条待处理负数单据明细（测试模式: LIMIT {limit}）")
     else:
-        print(f"加载了 {len(items)} 条待处理负数单据明细")
+        log(f"加载了 {len(items)} 条待处理负数单据明细")
     return items
 
 
@@ -872,7 +878,7 @@ def run_matching_algorithm(conn, test_limit: Optional[int] = None) -> List[Match
         groups[key].append(item)
     perf.stop("数据分组")
 
-    print(f"分组数量: {len(groups)}")
+    log(f"分组数量: {len(groups)}")
 
     # 3. 构建蓝票池（按SKU分批加载优化）
     perf.start("批量加载蓝票")
@@ -882,7 +888,7 @@ def run_matching_algorithm(conn, test_limit: Optional[int] = None) -> List[Match
     for (salertaxno, buyertaxno, spbm, taxrate) in groups.keys():
         seller_buyer_pairs.add((salertaxno, buyertaxno))
 
-    print(f"需要加载 {len(seller_buyer_pairs)} 对销购方的蓝票（SKU分批加载模式）")
+    log(f"需要加载 {len(seller_buyer_pairs)} 对销购方的蓝票（SKU分批加载模式）")
 
     # 对于每个销购方对，按SKU分批加载
     blue_pool: Dict[Tuple[str, str, str, str], List[BlueInvoiceItem]] = {}
@@ -891,8 +897,8 @@ def run_matching_algorithm(conn, test_limit: Optional[int] = None) -> List[Match
 
     # 准备所有批次任务
     batch_tasks = []
-    BATCH_SIZE = 1000
-    
+    BATCH_SIZE = 200  # 减小批次大小：1000 -> 200，避免单个查询数据量过大
+
     for salertaxno, buyertaxno in seller_buyer_pairs:
         # 提取该销购方对下的所有SKU
         sku_set = set()
@@ -904,18 +910,19 @@ def run_matching_algorithm(conn, test_limit: Optional[int] = None) -> List[Match
         if not sku_list:
             continue
             
-        print(f"  销购方对: 需要加载 {len(sku_list)} 个SKU")
+        log(f"  销购方对: 需要加载 {len(sku_list)} 个SKU")
 
         # 生成批次
         for i in range(0, len(sku_list), BATCH_SIZE):
             batch = sku_list[i:i+BATCH_SIZE]
             batch_tasks.append((salertaxno, buyertaxno, batch))
 
-    print(f"  共生成 {len(batch_tasks)} 个加载批次，准备并发加载...")
+    log(f"  共生成 {len(batch_tasks)} 个加载批次，准备并发加载...")
     
     # 使用线程池并发加载
-    # IO密集型任务，线程数可以设大一点，例如 CPU核数 * 2 或更多
-    max_workers = min(32, (os.cpu_count() or 4) * 4) 
+    # IO密集型任务，但需要控制数据库并发度，避免查询相互阻塞
+    # 降低并发度：32 -> 4，避免数据库负载过高
+    max_workers = min(4, os.cpu_count() or 4) 
     
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         # 提交所有任务
@@ -940,13 +947,13 @@ def run_matching_algorithm(conn, test_limit: Optional[int] = None) -> List[Match
                     full_key = (salertaxno, buyertaxno, spbm, taxrate)
                     blue_pool[full_key] = items
                 
-                print(f"    批次加载完成: {len(batch)} SKUs, {batch_rows} 行蓝票, {elapsed:.2f}秒")
+                log(f"    批次加载完成: {len(batch)} SKUs, {batch_rows} 行蓝票, {elapsed:.2f}秒")
                 
             except Exception as exc:
                 print(f"    批次加载异常: {exc}")
 
     perf.stop("批量加载蓝票")
-    print(f"蓝票池加载完成: {batch_count} 批次, {total_rows} 行蓝票数据, {len(blue_pool)} 组")
+    log(f"蓝票池加载完成: {batch_count} 批次, {total_rows} 行蓝票数据, {len(blue_pool)} 组")
 
     # 4. 多进程并发执行匹配
     results: List[MatchResult] = []
@@ -964,7 +971,7 @@ def run_matching_algorithm(conn, test_limit: Optional[int] = None) -> List[Match
         match_tasks.append((group_key, neg_items_data, blue_candidates_data))
     perf.stop("准备匹配任务")
 
-    print(f"开始多进程匹配 {len(match_tasks)} 组...")
+    log(f"开始多进程匹配 {len(match_tasks)} 组...")
 
     # 使用多进程池并发匹配（绕过GIL，真正并行）
     perf.start("多进程匹配")
@@ -981,11 +988,11 @@ def run_matching_algorithm(conn, test_limit: Optional[int] = None) -> List[Match
         failed_count += local_failed
     perf.stop("多进程匹配")
 
-    print(f"  Phase 1 匹配完成: {len(match_tasks)} 组, {len(results)} 条记录")
+    log(f"  Phase 1 匹配完成: {len(match_tasks)} 组, {len(results)} 条记录")
 
     # 5. Phase 2: 批量校验（两阶段校验优化）
     perf.start("Phase 2 批量校验")
-    print("开始 Phase 2 批量校验...")
+    log("开始 Phase 2 批量校验...")
     valid_results, invalid_results = batch_validate_results(results)
     perf.stop("Phase 2 批量校验")
 
@@ -1081,7 +1088,7 @@ def export_to_csv(results: List[MatchResult], filename: str):
                 is_full_line_red                          # 是否属于整行红冲
             ])
 
-    print(f"\n结果已导出到: {filename}")
+    log(f"\n结果已导出到: {filename}")
 
 
 def print_statistics(results: List[MatchResult]):
@@ -1107,7 +1114,7 @@ def aggregate_results(raw_results: List[MatchResult]) -> List[MatchResult]:
     """
     start_time = time.time()
 
-    print("\n正在聚合匹配结果...")
+    log("\n正在聚合匹配结果...")
 
     # Key: (blue_fid, blue_entryid)
     # Value: List[MatchResult]
@@ -1181,8 +1188,8 @@ def aggregate_results(raw_results: List[MatchResult]) -> List[MatchResult]:
         aggregated_results.append(agg_item)
 
     elapsed = time.time() - start_time
-    print(f"聚合完成: 原始记录 {len(raw_results)} -> 聚合后 {len(aggregated_results)}")
-    print(f"  耗时: {elapsed:.2f}秒")
+    log(f"聚合完成: 原始记录 {len(raw_results)} -> 聚合后 {len(aggregated_results)}")
+    log(f"  耗时: {elapsed:.2f}秒")
 
     return aggregated_results
 
@@ -1258,7 +1265,7 @@ def main():
             export_start = time.time()
             export_to_csv(final_results, output_file)
             export_elapsed = time.time() - export_start
-            print(f"CSV导出耗时: {export_elapsed:.2f}秒")
+            log(f"CSV导出耗时: {export_elapsed:.2f}秒")
 
             # 打印统计
             print_statistics(final_results) # 统计使用的是聚合后的数据
