@@ -13,7 +13,7 @@ from datetime import datetime
 import sys
 from pathlib import Path
 from openpyxl import load_workbook
-from config import load_config, get_db_config, get_tables
+from config import load_config, get_db_config, get_tables, get_full_row_threshold
 
 # 容差
 AMOUNT_TOLERANCE = Decimal('0.01')
@@ -372,11 +372,15 @@ def audit_full_row_flag(csv_results: list) -> dict:
     """
     稽核6: 整行红冲标记正确性
     - 验证 "是否属于整行红冲" 标记是否与余额一致
+    - 阈值：从配置文件读取（默认 0.10 元）
     """
     log("")
     log("="*60)
     log("稽核6: 整行红冲标记检查")
     log("="*60)
+
+    # 整行红冲的阈值（从配置读取）
+    FULL_ROW_THRESHOLD = Decimal(str(get_full_row_threshold()))
 
     result = {
         'name': '整行红冲标记',
@@ -397,7 +401,9 @@ def audit_full_row_flag(csv_results: list) -> dict:
         remain_after = Decimal(row['扣除本次红冲后，对应蓝票行的剩余可红冲金额'])
         is_full = row['是否属于整行红冲']
 
-        if remain_after <= AMOUNT_TOLERANCE:
+        # 剩余金额在 [0, 0.10] 之间应该标记为整行红冲
+        # 注意：由于计算精度问题，可能出现 -0.01 这样的微小负数，也应视为整行红冲
+        if Decimal('-0.01') <= remain_after <= FULL_ROW_THRESHOLD:
             full_count += 1
             if is_full != '是':
                 error_items.append({

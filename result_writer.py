@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
 from typing import List, TYPE_CHECKING
+from config import get_full_row_threshold
 
 if TYPE_CHECKING:
     from red_blue_matcher import MatchResult, SKUSummary, FailedMatch, InvoiceRedFlushSummary
@@ -129,8 +130,10 @@ class ResultWriter:
         # 扣除本次红冲后，对应蓝票行的剩余可红冲金额
         remaining_after = r.remain_amount_before - r.matched_amount
 
-        # 是否属于整行红冲 (剩余金额在0到0.10元之间)
-        is_full_line_red = '是' if (Decimal('0') <= remaining_after <= Decimal('0.10')) else '否'
+        # 是否属于整行红冲
+        # 使用配置的阈值，并容忍由于计算精度导致的微小负数（-0.01）
+        threshold = Decimal(str(get_full_row_threshold()))
+        is_full_line_red = '是' if (Decimal('-0.01') <= remaining_after <= threshold) else '否'
 
         # 格式化开票日期
         issue_date = r.fissuetime.strftime('%Y-%m-%d') if r.fissuetime else ''

@@ -68,6 +68,7 @@ class TableConfig:
 # 模块级别的配置单例
 _db_config: Optional[DatabaseConfig] = None
 _table_config: Optional[TableConfig] = None
+_full_row_threshold: float = 0.1  # 整行红冲阈值（默认0.1元）
 _config_loaded: bool = False
 
 
@@ -86,7 +87,7 @@ def load_config(env: Optional[str] = None) -> None:
         ValueError: 配置缺少必需字段或格式错误
         FileNotFoundError: 配置文件不存在
     """
-    global _db_config, _table_config, _config_loaded
+    global _db_config, _table_config, _full_row_threshold, _config_loaded
 
     # 如果已加载，直接返回
     if _config_loaded:
@@ -155,6 +156,16 @@ def load_config(env: Optional[str] = None) -> None:
     # 读取表名后缀（可选字段）
     table_suffix = os.getenv('TABLE_SUFFIX', '')
 
+    # 读取整行红冲阈值（可选字段，默认0.1）
+    try:
+        full_row_threshold_str = os.getenv('FULL_ROW_THRESHOLD', '0.1')
+        full_row_threshold_val = float(full_row_threshold_str)
+        if full_row_threshold_val < 0:
+            raise ValueError("FULL_ROW_THRESHOLD 必须 >= 0")
+        _full_row_threshold = full_row_threshold_val
+    except ValueError as e:
+        raise ValueError(f"FULL_ROW_THRESHOLD 格式错误: {e}")
+
     # 创建配置对象
     _db_config = DatabaseConfig(
         host=db_host,
@@ -170,6 +181,7 @@ def load_config(env: Optional[str] = None) -> None:
     print(f"配置加载成功:")
     print(f"  数据库: {db_name}@{db_host}:{db_port_int}")
     print(f"  表后缀: '{table_suffix}'" if table_suffix else "  表后缀: (无)")
+    print(f"  整行红冲阈值: {_full_row_threshold} 元")
 
 
 def get_db_config() -> Dict[str, any]:
@@ -208,11 +220,30 @@ def get_tables() -> TableConfig:
     return _table_config
 
 
+def get_full_row_threshold() -> float:
+    """
+    获取整行红冲判定阈值
+
+    Returns:
+        整行红冲阈值（单位：元）
+
+    Raises:
+        RuntimeError: 配置未加载时调用
+    """
+    if not _config_loaded:
+        raise RuntimeError(
+            "配置未加载。请先调用 load_config() 加载配置。"
+        )
+
+    return _full_row_threshold
+
+
 def reset_config() -> None:
     """重置配置（主要用于测试）"""
-    global _db_config, _table_config, _config_loaded
+    global _db_config, _table_config, _full_row_threshold, _config_loaded
     _db_config = None
     _table_config = None
+    _full_row_threshold = 0.1
     _config_loaded = False
 
 
