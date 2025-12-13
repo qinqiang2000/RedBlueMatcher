@@ -17,10 +17,12 @@
 
 from .base import MatchingStrategy
 from .greedy_large import GreedyLargeStrategy
+from .ffd import FFDStrategy
 
 # 策略注册表
 STRATEGIES = {
     'greedy_large': GreedyLargeStrategy,
+    'ffd': FFDStrategy,
 }
 
 # 默认策略
@@ -84,6 +86,7 @@ def register_strategy(name: str, strategy_class: type) -> None:
 __all__ = [
     'MatchingStrategy',
     'GreedyLargeStrategy',
+    'FFDStrategy',
     'get_strategy',
     'list_strategies',
     'register_strategy',
