@@ -11,14 +11,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from collections import defaultdict
 from datetime import datetime
 import sys
-
-# 数据库连接配置
-DB_CONFIG = {
-    'host': 'localhost',
-    'database': 'qinqiang02',
-    'user': 'qinqiang02',
-    'password': ''
-}
+from config import load_config, get_db_config, get_tables
 
 # 容差
 AMOUNT_TOLERANCE = Decimal('0.01')
@@ -58,13 +51,14 @@ def audit_balance_check(conn, csv_results: list) -> dict:
     result['details']['csv_total_amount'] = float(csv_total)
 
     # 2. 数据库中待红冲负数明细的总金额(取绝对值)
+    tables = get_tables()
     with conn.cursor() as cur:
-        cur.execute("""
+        cur.execute(f"""
             SELECT
                 COUNT(*) as cnt,
                 ABS(SUM(i.famount)) as total_amount
-            FROM t_sim_original_bill_1201 b
-            JOIN t_sim_original_bill_item_1201 i ON b.fid = i.fid
+            FROM {tables.original_bill} b
+            JOIN {tables.original_bill_item} i ON b.fid = i.fid
             WHERE b.fbillproperties = '-1'
               AND b.fconfirmstate = '0'
         """)
@@ -127,6 +121,7 @@ def audit_blue_overcharge(conn, csv_results: list) -> dict:
     fids = list(set(k[0] for k in blue_usage.keys()))
 
     # 分批查询 (每批1000个)
+    tables = get_tables()
     original_amounts = {}
     batch_size = 1000
 
@@ -137,7 +132,7 @@ def audit_blue_overcharge(conn, csv_results: list) -> dict:
         with conn.cursor() as cur:
             cur.execute(f"""
                 SELECT fid, fentryid, fitemremainredamount
-                FROM t_sim_vatinvoice_item_1201
+                FROM {tables.vatinvoice_item}
                 WHERE fid IN ({placeholders})
             """, batch_fids)
 
@@ -201,6 +196,7 @@ def audit_sku_match(conn, csv_results: list) -> dict:
     result['details']['checked_count'] = len(to_check)
 
     # 批量查询蓝票SKU
+    tables = get_tables()
     fids = list(set(k[0] for k in to_check.keys()))
     db_skus = {}
     batch_size = 1000
@@ -212,7 +208,7 @@ def audit_sku_match(conn, csv_results: list) -> dict:
         with conn.cursor() as cur:
             cur.execute(f"""
                 SELECT fid, fentryid, COALESCE(fspbm, '') as fspbm
-                FROM t_sim_vatinvoice_item_1201
+                FROM {tables.vatinvoice_item}
                 WHERE fid IN ({placeholders})
             """, batch_fids)
 
@@ -530,6 +526,15 @@ def generate_summary(audit_results: list) -> dict:
 
 def main(csv_path: str):
     """执行完整稽核"""
+    # 加载配置
+    try:
+        load_config()
+    except Exception as e:
+        log(f"❌ 配置加载失败: {e}")
+        log("请检查 .env 文件是否存在且配置正确")
+        log("提示: 可从 .env.example 复制并修改配置")
+        sys.exit(1)
+
     log("="*60)
     log("匹配结果稽核 - 开始")
     log("="*60)
@@ -541,7 +546,7 @@ def main(csv_path: str):
     log(f"加载CSV记录: {len(csv_results):,} 条")
 
     # 连接数据库
-    conn = psycopg2.connect(**DB_CONFIG)
+    conn = psycopg2.connect(**get_db_config())
 
     try:
         audit_results = []

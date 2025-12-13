@@ -27,6 +27,7 @@ from multiprocessing import Pool, cpu_count
 import numpy as np
 from performance_tracker import PerformanceTracker
 from result_writer import ResultWriter, OutputConfig
+from config import load_config, get_db_config, get_tables
 
 
 def log(msg: str):
@@ -34,14 +35,6 @@ def log(msg: str):
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     print(f"[{timestamp}] {msg}")
 
-
-# 数据库连接配置
-DB_CONFIG = {
-    'host': 'localhost',
-    'database': 'qinqiang02',
-    'user': 'qinqiang02',
-    'password': ''
-}
 
 # 尾差容差
 AMOUNT_TOLERANCE = Decimal('0.01')
@@ -190,7 +183,7 @@ class MatchingReport:
 
 def get_db_connection():
     """获取数据库连接"""
-    return psycopg2.connect(**DB_CONFIG)
+    return psycopg2.connect(**get_db_config())
 
 
 def load_negative_items(conn, limit: Optional[int] = None) -> List[NegativeItem]:
@@ -202,7 +195,8 @@ def load_negative_items(conn, limit: Optional[int] = None) -> List[NegativeItem]
         conn: 数据库连接
         limit: 限制加载的记录数（用于测试），None表示加载全部
     """
-    sql = """
+    tables = get_tables()
+    sql = f"""
         SELECT
             b.fid,
             i.fentryid,
@@ -215,8 +209,8 @@ def load_negative_items(conn, limit: Optional[int] = None) -> List[NegativeItem]
             i.ftax,
             b.fsalertaxno,
             b.fbuyertaxno
-        FROM t_sim_original_bill_1201 b
-        JOIN t_sim_original_bill_item_1201 i ON b.fid = i.fid
+        FROM {tables.original_bill} b
+        JOIN {tables.original_bill_item} i ON b.fid = i.fid
         WHERE b.fbillproperties = '-1'
           AND b.fconfirmstate = '0'
         ORDER BY b.fid, i.fentryid
@@ -257,7 +251,8 @@ def load_candidate_blues(conn, salertaxno: str, buyertaxno: str,
     条件: fissuetype='0', finvoicestatus IN ('0','2'), fspbm匹配, ftaxrate匹配, fitemremainredamount > 0
     排序: fitemremainredamount DESC, fissuetime ASC (优先大额，同额优先早期)
     """
-    sql = """
+    tables = get_tables()
+    sql = f"""
         SELECT
             v.fid,
             vi.fentryid,
@@ -269,8 +264,8 @@ def load_candidate_blues(conn, salertaxno: str, buyertaxno: str,
             vi.fitemremainrednum,
             vi.fredprice,
             v.fissuetime
-        FROM t_sim_vatinvoice_1201 v
-        JOIN t_sim_vatinvoice_item_1201 vi ON v.fid = vi.fid
+        FROM {tables.vatinvoice} v
+        JOIN {tables.vatinvoice_item} vi ON v.fid = vi.fid
         WHERE v.fissuetype = '0'
           AND v.finvoicestatus IN ('0', '2')
           AND v.fsalertaxno = %s
@@ -336,6 +331,7 @@ def load_blues_batch_by_seller_buyer(conn, seller_buyer_pairs: set) -> Dict[Tupl
         return {}
 
     # 构建 WHERE IN 条件
+    tables = get_tables()
     pairs_list = list(seller_buyer_pairs)
     placeholders = ', '.join(['(%s, %s)'] * len(pairs_list))
     params = []
@@ -356,8 +352,8 @@ def load_blues_batch_by_seller_buyer(conn, seller_buyer_pairs: set) -> Dict[Tupl
             v.fissuetime,
             v.fsalertaxno,
             v.fbuyertaxno
-        FROM t_sim_vatinvoice_1201 v
-        JOIN t_sim_vatinvoice_item_1201 vi ON v.fid = vi.fid
+        FROM {tables.vatinvoice} v
+        JOIN {tables.vatinvoice_item} vi ON v.fid = vi.fid
         WHERE v.fissuetype = '0'
           AND v.finvoicestatus IN ('0', '2')
           AND (v.fsalertaxno, v.fbuyertaxno) IN ({placeholders})
@@ -409,6 +405,7 @@ def load_blues_by_sku_batch(conn,
         return {}
 
     # 构建WHERE IN条件 - 针对(fspbm, ftaxrate)
+    tables = get_tables()
     placeholders = ', '.join(['(%s, %s)'] * len(sku_list))
     params = [salertaxno, buyertaxno]
     for spbm, taxrate in sku_list:
@@ -426,8 +423,8 @@ def load_blues_by_sku_batch(conn,
             vi.fitemremainrednum,
             vi.fredprice,
             v.fissuetime
-        FROM t_sim_vatinvoice_1201 v
-        JOIN t_sim_vatinvoice_item_1201 vi ON v.fid = vi.fid
+        FROM {tables.vatinvoice} v
+        JOIN {tables.vatinvoice_item} vi ON v.fid = vi.fid
         WHERE v.fissuetype = '0'
           AND v.finvoicestatus IN ('0', '2')
           AND v.fsalertaxno = %s
@@ -474,6 +471,7 @@ def load_invoice_original_data(conn, blue_fids: List[int]) -> Dict[int, Dict]:
     if not blue_fids:
         return {}
 
+    tables = get_tables()
     placeholders = ','.join(['%s'] * len(blue_fids))
     sql = f"""
         SELECT
@@ -481,8 +479,8 @@ def load_invoice_original_data(conn, blue_fids: List[int]) -> Dict[int, Dict]:
             COUNT(DISTINCT vi.fentryid) as original_line_count,
             SUM(vi.famount) as original_total_amount,
             SUM(vi.fitemremainredamount) as total_remain_amount
-        FROM t_sim_vatinvoice_1201 v
-        JOIN t_sim_vatinvoice_item_1201 vi ON v.fid = vi.fid
+        FROM {tables.vatinvoice} v
+        JOIN {tables.vatinvoice_item} vi ON v.fid = vi.fid
         WHERE v.fid IN ({placeholders})
         GROUP BY v.fid
     """
@@ -1450,6 +1448,15 @@ def parse_arguments():
 def main():
     """主函数"""
     overall_start = time.time()
+
+    # 加载配置
+    try:
+        load_config()
+    except Exception as e:
+        print(f"❌ 配置加载失败: {e}")
+        print("请检查 .env 文件是否存在且配置正确")
+        print("提示: 可从 .env.example 复制并修改配置")
+        sys.exit(1)
 
     args = parse_arguments()
 

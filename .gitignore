@@ -2,3 +2,11 @@ output/
 .DS_Store
 logs
 __pycache__/
+
+# 环境配置文件（敏感信息）
+.env
+.env.local
+.env.*.local
+
+# 保留配置模板（不忽略）
+!.env.example
