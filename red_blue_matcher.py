@@ -28,6 +28,8 @@ import numpy as np
 from performance_tracker import PerformanceTracker
 from result_writer import ResultWriter, OutputConfig
 from config import load_config, get_db_config, get_tables
+from strategies import get_strategy, list_strategies
+from strategies.greedy_large import validate_tail_diff
 
 
 def log(msg: str):
@@ -528,22 +530,29 @@ def match_group_worker(args: Tuple) -> Tuple[List[dict], int, int, List[dict]]:
     处理单个分组的所有负数单据匹配
 
     Args:
-        args: (group_key, neg_items_data, blue_candidates_data)
+        args: (group_key, neg_items_data, blue_candidates_data, strategy_name)
               group_key: (salertaxno, buyertaxno, spbm, taxrate)
               neg_items_data: List[dict] - 负数单据数据（已序列化）
               blue_candidates_data: List[dict] - 蓝票数据（已序列化）
+              strategy_name: 策略名称
 
     Returns:
         (local_results_data, matched_count, failed_count, failed_items_data)
         local_results_data 为 dict 列表，便于跨进程传输
         failed_items_data 为失败的负数单据及原因
     """
-    group_key, neg_items_data, blue_candidates_data = args
+    group_key, neg_items_data, blue_candidates_data, strategy_name = args
     spbm, taxrate = group_key[2], group_key[3]
+
+    # 获取策略实例
+    strategy = get_strategy(strategy_name)
 
     # 反序列化数据为对象
     neg_items = [NegativeItem(**d) for d in neg_items_data]
     blue_candidates = [BlueInvoiceItem(**d) for d in blue_candidates_data]
+
+    # 预处理负数单据（策略可覆盖，如排序）
+    neg_items = strategy.pre_process_negatives(neg_items)
 
     # 构建本地蓝票池（该组独占，无需同步）
     temp_pool = {(spbm, taxrate): blue_candidates}
@@ -556,7 +565,7 @@ def match_group_worker(args: Tuple) -> Tuple[List[dict], int, int, List[dict]]:
 
     for neg in neg_items:
         # 启用延迟校验模式（skip_validation=True），Phase 2 再批量校验
-        success, reason = match_single_negative(neg, temp_pool, local_results, seq_counter, skip_validation=True)
+        success, reason = strategy.match_single_negative(neg, temp_pool, local_results, seq_counter, skip_validation=True)
         if success:
             matched_count += 1
         else:
@@ -624,95 +633,6 @@ def blue_item_to_dict(item: BlueInvoiceItem) -> dict:
     }
 
 
-def find_exact_match(target_amount: Decimal,
-                     candidates: List[BlueInvoiceItem]) -> Optional[int]:
-    """
-    使用NumPy向量化查找精确匹配的蓝票索引
-
-    Args:
-        target_amount: 目标金额（正数）
-        candidates: 候选蓝票列表
-
-    Returns:
-        精确匹配的蓝票在candidates中的索引，未找到返回None
-    """
-    if not candidates:
-        return None
-
-    # 转换为NumPy数组（放大10000倍转为整数避免浮点误差）
-    SCALE = 10000
-    target_scaled = int(target_amount * SCALE)
-
-    # 构建金额数组（仅包含有余额的蓝票）
-    amounts_scaled = np.array(
-        [int(b.current_remain_amount * SCALE) for b in candidates],
-        dtype=np.int64
-    )
-
-    # 向量化精确查找
-    exact_indices = np.where(amounts_scaled == target_scaled)[0]
-
-    if len(exact_indices) > 0:
-        # 返回第一个精确匹配的索引
-        return int(exact_indices[0])
-
-    return None
-
-
-def find_near_matches(target_amount: Decimal,
-                      candidates: List[BlueInvoiceItem],
-                      tolerance: Decimal = AMOUNT_TOLERANCE) -> List[int]:
-    """
-    使用NumPy向量化查找近似匹配的蓝票索引（在容差范围内）
-
-    Args:
-        target_amount: 目标金额（正数）
-        candidates: 候选蓝票列表
-        tolerance: 容差范围
-
-    Returns:
-        近似匹配的蓝票索引列表
-    """
-    if not candidates:
-        return []
-
-    SCALE = 10000
-    target_scaled = int(target_amount * SCALE)
-    tolerance_scaled = int(tolerance * SCALE)
-
-    amounts_scaled = np.array(
-        [int(b.current_remain_amount * SCALE) for b in candidates],
-        dtype=np.int64
-    )
-
-    # 向量化查找容差范围内的匹配
-    near_indices = np.where(np.abs(amounts_scaled - target_scaled) <= tolerance_scaled)[0]
-    return near_indices.tolist()
-
-
-def validate_tail_diff(amount: Decimal, quantity: Decimal,
-                       unit_price: Decimal, tax: Decimal,
-                       tax_rate: Decimal) -> Tuple[bool, str]:
-    """
-    尾差校验
-    规则:
-    - |单价 × 数量 - 金额| ≤ 0.01
-    - |金额 × 税率 - 税额| ≤ 0.06
-    """
-    # 金额校验
-    calc_amount = (quantity * unit_price).quantize(Decimal('0.01'), ROUND_HALF_UP)
-    amount_diff = abs(calc_amount - amount)
-
-    # 税额校验
-    calc_tax = (amount * tax_rate).quantize(Decimal('0.01'), ROUND_HALF_UP)
-    tax_diff = abs(calc_tax - tax)
-
-    if amount_diff > AMOUNT_TOLERANCE:
-        return False, f"金额尾差超限: {amount_diff} > {AMOUNT_TOLERANCE}"
-    if tax_diff > TAX_TOLERANCE:
-        return False, f"税额尾差超限: {tax_diff} > {TAX_TOLERANCE}"
-
-    return True, "校验通过"
 
 
 def batch_validate_results(results: List[MatchResult],
@@ -749,196 +669,6 @@ def batch_validate_results(results: List[MatchResult],
             invalid_results.append(r)
 
     return valid_results, invalid_results
-
-
-def match_single_negative(negative: NegativeItem,
-                          blue_pool: Dict[Tuple[str, str], List[BlueInvoiceItem]],
-                          results: List[MatchResult],
-                          seq_counter: List[int],
-                          skip_validation: bool = False) -> Tuple[bool, str]:
-    """
-    为单个负数明细匹配蓝票
-
-    Args:
-        negative: 负数单据明细
-        blue_pool: 蓝票池 {(spbm, taxrate): [BlueInvoiceItem]}
-        results: 匹配结果列表
-        seq_counter: 序号计数器 [当前序号]
-        skip_validation: 是否跳过尾差校验（两阶段校验优化）
-
-    Returns:
-        (是否匹配成功, 失败原因)
-    """
-    # 匹配键
-    match_key = (negative.fspbm, negative.ftaxrate)
-
-    if match_key not in blue_pool:
-        reason = f"找不到匹配的蓝票 - SKU: {negative.fspbm}, 税率: {negative.ftaxrate}"
-        print(f"  警告: {reason}")
-        return False, reason
-
-    candidates = blue_pool[match_key]
-
-    # 需要红冲的金额（转为正数）
-    target_amount = abs(negative.famount)
-    remaining_amount = target_amount
-
-    # 快速路径：NumPy向量化精确匹配
-    # 如果能找到金额完全相等的蓝票，直接使用，无需校验
-    exact_idx = find_exact_match(target_amount, candidates)
-    if exact_idx is not None:
-        blue = candidates[exact_idx]
-        if blue.current_remain_amount > Decimal('0'):
-            unit_price = blue.effective_price
-            if unit_price > 0:
-                # 精确匹配：使用蓝票全部余额
-                final_match_amount = blue.current_remain_amount
-                final_match_num = blue.current_remain_num
-
-                # 记录匹配前的余额
-                remain_before = blue.current_remain_amount
-
-                # 扣减蓝票余额
-                blue.deduct(final_match_amount, final_match_num)
-
-                # 记录匹配结果
-                seq_counter[0] += 1
-                results.append(MatchResult(
-                    seq=seq_counter[0],
-                    sku_code=negative.fspbm,
-                    blue_fid=blue.fid,
-                    blue_entryid=blue.fentryid,
-                    remain_amount_before=remain_before,
-                    unit_price=unit_price,
-                    matched_amount=final_match_amount,
-                    negative_fid=negative.fid,
-                    negative_entryid=negative.fentryid,
-                    blue_invoice_no=blue.finvoiceno,
-                    goods_name=negative.fgoodsname,
-                    fissuetime=blue.fissuetime
-                ))
-
-                # 精确匹配一次性完成
-                return True, ""
-
-    # 常规路径：遍历候选蓝票进行贪心匹配
-    for blue in candidates:
-        if remaining_amount <= Decimal('0'):
-            break
-
-        if blue.current_remain_amount <= Decimal('0'):
-            continue
-
-        unit_price = blue.effective_price
-        if unit_price <= 0:
-            continue
-
-        # 1. 确定理论最大可用金额
-        # 蓝票余额充足 -> use remaining_amount
-        # 蓝票余额不足 -> use blue.current_remain_amount
-        if blue.current_remain_amount >= remaining_amount:
-            raw_match_amount = remaining_amount
-            is_flush = False # 是否吃光蓝票
-        else:
-            raw_match_amount = blue.current_remain_amount
-            is_flush = True
-
-        # 2. 整数数量优先优化 (Integer Optimization)
-        # 尝试寻找最接近的整数数量
-        raw_qty = raw_match_amount / unit_price
-        int_qty = raw_qty.quantize(Decimal('1'), ROUND_HALF_UP)
-        
-        # 计算基于整数数量的金额
-        int_match_amount = (int_qty * unit_price).quantize(Decimal('0.01'), ROUND_HALF_UP)
-        
-        # 决策变量
-        final_match_amount = Decimal('0')
-        final_match_num = Decimal('0')
-        use_integer = False
-
-        # 校验整数方案是否可行
-        # 条件A: 整数金额不能超过蓝票余额(加容差)
-        # 条件B: 整数金额不能严重偏离目标(如果是覆盖模式)
-        if int_match_amount <= blue.current_remain_amount + AMOUNT_TOLERANCE:
-             # 如果不是吃光模式，且整数金额超过了剩余需求太多，也不行 (比如需求100，算出105，不行)
-             if not (not is_flush and int_match_amount > remaining_amount + AMOUNT_TOLERANCE):
-                 # 校验通过尾差规则（如果启用延迟校验则跳过）
-                 if skip_validation:
-                     # 延迟校验模式：直接使用整数方案
-                     if int_qty > Decimal('0'):
-                         final_match_amount = int_match_amount
-                         final_match_num = int_qty
-                         use_integer = True
-                 else:
-                     # 估算税额
-                     tax_rate = Decimal(blue.ftaxrate) if blue.ftaxrate else Decimal('0.13')
-                     est_tax = (int_match_amount * tax_rate).quantize(Decimal('0.01'), ROUND_HALF_UP)
-
-                     valid, msg = validate_tail_diff(int_match_amount, int_qty, unit_price, est_tax, tax_rate)
-                     if valid and int_qty > Decimal('0'):  # 确保整数数量非零
-                         final_match_amount = int_match_amount
-                         final_match_num = int_qty
-                         use_integer = True
-
-        # 3. 如果整数方案不可行，回退到精确小数方案
-        if not use_integer:
-            # 直接使用 raw_match_amount，计算精确数量
-            final_match_amount = raw_match_amount
-            final_match_num = (final_match_amount / unit_price).quantize(Decimal('0.0000000000001'), ROUND_HALF_UP)
-
-            # 再校验一次尾差（如果启用延迟校验则跳过）
-            if not skip_validation:
-                tax_rate = Decimal(blue.ftaxrate) if blue.ftaxrate else Decimal('0.13')
-                est_tax = (final_match_amount * tax_rate).quantize(Decimal('0.01'), ROUND_HALF_UP)
-                valid, msg = validate_tail_diff(final_match_amount, final_match_num, unit_price, est_tax, tax_rate)
-
-                if not valid:
-                    # 极其罕见情况：小数方案也不满足尾差公式（数学上几乎不可能，除非精度极差）
-                    # 尝试微调金额? 暂时跳过此蓝票
-                    print(f"    跳过蓝票 {blue.fid}: 无法满足尾差校验 ({msg})")
-                    continue
-
-        # 吃光策略修正：如果剩余极其微小，视为0 (防止0.01残留)
-        if abs(blue.current_remain_amount - final_match_amount) < AMOUNT_TOLERANCE:
-            # 如果是吃光，强制使用蓝票当前全部余额，避免浮点误差导致的0.000001残留
-            final_match_amount = blue.current_remain_amount
-            # 数量使用刚才算出的(不管是整数还是小数)
-        
-        # 记录匹配前的余额
-        remain_before = blue.current_remain_amount
-
-        # 跳过零金额匹配（不应产生无效记录）
-        if final_match_amount <= AMOUNT_TOLERANCE:
-            continue
-
-        # 扣减蓝票余额
-        blue.deduct(final_match_amount, final_match_num)
-
-        # 记录匹配结果
-        seq_counter[0] += 1
-        results.append(MatchResult(
-            seq=seq_counter[0],
-            sku_code=negative.fspbm,
-            blue_fid=blue.fid,
-            blue_entryid=blue.fentryid,
-            remain_amount_before=remain_before,
-            unit_price=unit_price,
-            matched_amount=final_match_amount,
-            negative_fid=negative.fid,
-            negative_entryid=negative.fentryid,
-            blue_invoice_no=blue.finvoiceno,
-            goods_name=negative.fgoodsname,
-            fissuetime=blue.fissuetime
-        ))
-
-        remaining_amount -= final_match_amount
-
-    if remaining_amount > AMOUNT_TOLERANCE:
-        reason = f"负数明细未完全匹配 - 单据: {negative.fbillno}, SKU: {negative.fspbm}, 剩余: {remaining_amount}"
-        print(f"  警告: {reason}")
-        return False, reason
-
-    return True, ""
 
 
 def generate_sku_summaries(match_results: List[MatchResult],
@@ -1068,17 +798,23 @@ def generate_invoice_summaries(match_results: List[MatchResult],
     return summaries
 
 
-def run_matching_algorithm(conn, test_limit: Optional[int] = None) -> MatchingReport:
+def run_matching_algorithm(conn, test_limit: Optional[int] = None,
+                           strategy_name: str = None) -> MatchingReport:
     """
     运行匹蓝算法主流程
 
     Args:
         conn: 数据库连接
         test_limit: 测试模式下限制处理的负数单据数量
+        strategy_name: 匹配策略名称，为 None 时使用默认策略
 
     Returns:
         完整的匹配报告（包含匹配结果、SKU统计、失败记录）
     """
+    # 获取策略（用于日志和验证策略名称有效）
+    strategy = get_strategy(strategy_name)
+    strategy_name = strategy.name  # 确保使用规范化的策略名称
+
     # 初始化性能追踪器
     perf = PerformanceTracker()
     perf.start("总耗时")
@@ -1088,6 +824,7 @@ def run_matching_algorithm(conn, test_limit: Optional[int] = None) -> MatchingRe
         print(f"负数发票自动匹蓝算法 - 开始执行 (测试模式: 仅处理前 {test_limit} 条)")
     else:
         print("负数发票自动匹蓝算法 - 开始执行")
+    log(f"使用匹配策略: {strategy.name}")
     print("=" * 60)
 
     # 1. 加载负数单据
@@ -1212,7 +949,8 @@ def run_matching_algorithm(conn, test_limit: Optional[int] = None) -> MatchingRe
         # 序列化为 dict 列表，便于跨进程传输
         neg_items_data = [negative_item_to_dict(n) for n in neg_items]
         blue_candidates_data = [blue_item_to_dict(b) for b in blue_candidates]
-        match_tasks.append((group_key, neg_items_data, blue_candidates_data))
+        # 将策略名称传递给 worker
+        match_tasks.append((group_key, neg_items_data, blue_candidates_data, strategy_name))
     perf.stop("准备匹配任务")
 
     log(f"开始多进程匹配 {len(match_tasks)} 组...")
@@ -1410,19 +1148,27 @@ def aggregate_results(raw_results: List[MatchResult]) -> List[MatchResult]:
 
 def parse_arguments():
     """解析命令行参数"""
+    # 获取可用策略列表
+    available_strategies = list_strategies()
+
     parser = argparse.ArgumentParser(
         description='负数发票自动匹蓝算法',
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
+        epilog=f"""
 示例用法:
-  # 全量运行
+  # 全量运行（使用默认算法）
   python red_blue_matcher.py
 
   # 测试模式：仅处理前10条负数单据
   python red_blue_matcher.py --test-limit 10
 
-  # 测试模式并指定输出文件
-  python red_blue_matcher.py --test-limit 5 --output test_results.csv
+  # 指定匹配算法
+  python red_blue_matcher.py --algorithm greedy_large
+
+  # 测试模式并指定输出文件和算法
+  python red_blue_matcher.py --test-limit 100 --algorithm greedy_large --output test_results.xlsx
+
+可用算法: {', '.join(available_strategies)}
         """
     )
 
@@ -1440,6 +1186,15 @@ def parse_arguments():
         default='match_results.xlsx',
         metavar='FILE',
         help='输出XLSX文件路径（默认: match_results.xlsx）'
+    )
+
+    parser.add_argument(
+        '--algorithm',
+        type=str,
+        default=None,
+        metavar='NAME',
+        choices=available_strategies,
+        help=f'匹配算法（可选: {", ".join(available_strategies)}，默认: greedy_large）'
     )
 
     return parser.parse_args()
@@ -1472,7 +1227,8 @@ def main():
         conn = get_db_connection()
 
         # 执行匹配算法（注意：test_limit模式下不会更新数据库）
-        report = run_matching_algorithm(conn, test_limit=args.test_limit)
+        report = run_matching_algorithm(conn, test_limit=args.test_limit,
+                                        strategy_name=args.algorithm)
 
         if report.match_results:
             # 执行聚合

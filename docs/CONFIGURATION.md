@@ -48,6 +48,61 @@ python red_blue_matcher.py --test-limit 10
 
 # 完整运行
 python red_blue_matcher.py
+
+# 指定匹配算法运行
+python red_blue_matcher.py --algorithm greedy_large
+
+# 组合参数运行
+python red_blue_matcher.py --test-limit 100 --algorithm greedy_large --output results.xlsx
+```
+
+## 命令行参数
+
+### 主要参数
+
+| 参数名 | 类型 | 默认值 | 说明 |
+|--------|------|--------|------|
+| `--algorithm` | str | `greedy_large` | 匹配算法（可选） |
+| `--test-limit` | int | 无 | 测试模式：仅处理前N条负数单据 |
+| `--output` | str | `match_results.xlsx` | 输出XLSX文件路径 |
+
+### 算法选择
+
+目前支持的算法：
+
+- **`greedy_large`**（默认）：贪心大额优先算法
+  - 优先精确匹配：使用 NumPy 向量化查找
+  - 贪心消耗：按蓝票金额从大到小消耗
+  - 整数数量优先：尽量使红冲数量为整数
+
+#### 使用示例
+
+```bash
+# 使用默认算法
+python red_blue_matcher.py
+
+# 显式指定算法
+python red_blue_matcher.py --algorithm greedy_large
+
+# 查看可用算法
+python red_blue_matcher.py --help
+```
+
+#### 命令行帮助
+
+```bash
+$ python red_blue_matcher.py --help
+
+usage: red_blue_matcher.py [-h] [--test-limit N] [--output FILE]
+                           [--algorithm NAME]
+
+负数发票自动匹蓝算法
+
+options:
+  -h, --help        show this help message and exit
+  --test-limit N    测试模式：仅处理前N条负数单据（不更新数据库状态）
+  --output FILE     输出XLSX文件路径（默认: match_results.xlsx）
+  --algorithm NAME  匹配算法（可选: greedy_large，默认: greedy_large）
 ```
 
 ## 配置参数详解

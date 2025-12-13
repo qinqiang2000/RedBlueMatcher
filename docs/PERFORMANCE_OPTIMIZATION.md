@@ -131,6 +131,18 @@ python3 red_blue_matcher.py
 python3 red_blue_matcher.py --test-limit 100
 ```
 
+### 指定算法运行
+```bash
+# 使用默认算法（greedy_large）
+python3 red_blue_matcher.py
+
+# 显式指定算法
+python3 red_blue_matcher.py --algorithm greedy_large
+
+# 测试模式 + 指定算法
+python3 red_blue_matcher.py --test-limit 100 --algorithm greedy_large
+```
+
 ### 性能测试
 ```bash
 python3 benchmark.py --test-limit 50 --runs 3
