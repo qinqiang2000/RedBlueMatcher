@@ -26,6 +26,7 @@ from threading import Lock
 from multiprocessing import Pool, cpu_count
 import numpy as np
 from performance_tracker import PerformanceTracker
+from result_writer import ResultWriter, OutputConfig
 
 
 def log(msg: str):
@@ -1022,75 +1023,6 @@ def run_matching_algorithm(conn, test_limit: Optional[int] = None) -> List[Match
     return results
 
 
-def export_to_csv(results: List[MatchResult], filename: str):
-    """
-    导出匹配结果到CSV文件
-
-    CSV列:
-    - 序号
-    - 待红冲 SKU 编码
-    - 该 SKU 红冲对应蓝票的fid
-    - 该 SKU 红冲对应蓝票的发票号码
-    - 该 SKU 红冲对应蓝票的开票日期
-    - 该 SKU 红冲对应蓝票的发票行号
-    - 该 SKU红冲对应蓝票行的剩余可红冲金额
-    - 该 SKU红冲对应蓝票行的可红冲单价
-    - 本次红冲扣除的红冲金额（正数）
-    - 本次红冲扣除 SKU数量
-    - 扣除本次红冲后，对应蓝票行的剩余可红冲金额
-    - 是否属于整行红冲
-    """
-    headers = [
-        '序号',
-        '待红冲 SKU 编码',
-        '该 SKU 红冲对应蓝票的fid',
-        '该 SKU 红冲对应蓝票的发票号码',
-        '该 SKU 红冲对应蓝票的开票日期',
-        '该 SKU 红冲对应蓝票的发票行号',
-        '该 SKU红冲对应蓝票行的剩余可红冲金额',
-        '该 SKU红冲对应蓝票行的可红冲单价',
-        '本次红冲扣除的红冲金额（正数）',
-        '本次红冲扣除 SKU数量',
-        '扣除本次红冲后，对应蓝票行的剩余可红冲金额',
-        '是否属于整行红冲'
-    ]
-
-    with open(filename, 'w', newline='', encoding='utf-8-sig') as f:
-        writer = csv.writer(f)
-        writer.writerow(headers)
-
-        for r in results:
-            # 计算新增列的值
-            # 本次红冲扣除 SKU数量 (保留10位小数)
-            red_quantity = (r.matched_amount / r.unit_price).quantize(Decimal('0.0000000001'), ROUND_HALF_UP)
-
-            # 扣除本次红冲后，对应蓝票行的剩余可红冲金额
-            remaining_after = r.remain_amount_before - r.matched_amount
-
-            # 是否属于整行红冲 (剩余金额在0到0.10元之间)
-            is_full_line_red = '是' if (Decimal('0') <= remaining_after <= Decimal('0.10')) else '否'
-
-            # 格式化开票日期
-            issue_date = r.fissuetime.strftime('%Y-%m-%d') if r.fissuetime else ''
-
-            writer.writerow([
-                r.seq,                                    # 序号
-                r.sku_code,                               # 待红冲 SKU 编码
-                r.blue_fid,                               # 该 SKU 红冲对应蓝票的fid
-                r.blue_invoice_no,                        # 该 SKU 红冲对应蓝票的发票号码
-                issue_date,                               # 该 SKU 红冲对应蓝票的开票日期
-                r.blue_entryid,                           # 该 SKU 红冲对应蓝票的发票行号
-                f"{r.remain_amount_before:.2f}",          # 该 SKU红冲对应蓝票行的剩余可红冲金额
-                f"{r.unit_price:.10f}",                   # 该 SKU红冲对应蓝票行的可红冲单价
-                f"{r.matched_amount:.2f}",                # 本次红冲扣除的红冲金额（正数）
-                f"{red_quantity:.10f}",                   # 本次红冲扣除 SKU数量（10位小数）
-                f"{remaining_after:.2f}",                 # 扣除本次红冲后，对应蓝票行的剩余可红冲金额
-                is_full_line_red                          # 是否属于整行红冲
-            ])
-
-    log(f"\n结果已导出到: {filename}")
-
-
 def print_statistics(results: List[MatchResult]):
     """打印匹配统计信息"""
     if not results:
@@ -1237,19 +1169,12 @@ def main():
 
     args = parse_arguments()
 
-    # 构建输出文件路径（添加日期和时间）
-    if args.output.startswith('/'):
-        output_file = args.output
-    else:
-        # 生成带有日期和时间（到秒）的文件名
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        filename_base = os.path.splitext(args.output)[0]
-        filename_ext = os.path.splitext(args.output)[1]
-        output_file = f'/Users/qinqiang02/colab/codespace/python/RedBlueMatcher/output/{filename_base}_{timestamp}{filename_ext}'
-
-    # 确保输出目录存在
-    output_dir = os.path.dirname(output_file)
-    os.makedirs(output_dir, exist_ok=True)
+    # 配置输出（使用 ResultWriter 统一管理）
+    output_config = OutputConfig(
+        base_name=args.output,
+        format='csv',
+        add_timestamp=True
+    )
 
     try:
         conn = get_db_connection()
@@ -1261,14 +1186,16 @@ def main():
             # 执行聚合
             final_results = aggregate_results(results)
 
-            # 导出CSV（带单独计时）
+            # 导出结果（带单独计时）
             export_start = time.time()
-            export_to_csv(final_results, output_file)
+            writer = ResultWriter(output_config)
+            output_file = writer.write(final_results)
             export_elapsed = time.time() - export_start
-            log(f"CSV导出耗时: {export_elapsed:.2f}秒")
+            log(f"结果已导出到: {output_file}")
+            log(f"导出耗时: {export_elapsed:.2f}秒")
 
             # 打印统计
-            print_statistics(final_results) # 统计使用的是聚合后的数据
+            print_statistics(final_results)  # 统计使用的是聚合后的数据
 
             if args.test_limit:
                 print("\n" + "=" * 60)

@@ -9,7 +9,9 @@ import time
 import subprocess
 import sys
 import os
+import glob as glob_module
 from datetime import datetime
+from result_writer import ResultWriter, OutputConfig
 
 
 def run_benchmark(test_limit=100, num_runs=3):
@@ -33,9 +35,11 @@ def run_benchmark(test_limit=100, num_runs=3):
         'red_blue_matcher.py'
     )
 
-    output_file = f'benchmark_output_{test_limit}.csv'
+    # 使用 ResultWriter 获取输出配置（与 red_blue_matcher.py 保持一致）
+    output_base_name = f'benchmark_output_{test_limit}.csv'
 
     times = []
+    actual_output_files = []  # 记录实际生成的文件
 
     for run_idx in range(num_runs):
         print(f"\n--- 运行 {run_idx + 1}/{num_runs} ---")
@@ -47,7 +51,7 @@ def run_benchmark(test_limit=100, num_runs=3):
             sys.executable,
             script_path,
             '--test-limit', str(test_limit),
-            '--output', output_file
+            '--output', output_base_name
         ]
 
         try:
@@ -63,6 +67,14 @@ def run_benchmark(test_limit=100, num_runs=3):
             times.append(elapsed)
 
             print(f"✓ 完成 - 耗时: {elapsed:.2f} 秒")
+
+            # 从输出中提取实际生成的文件路径
+            for line in result.stdout.split('\n'):
+                if '结果已导出到:' in line:
+                    # 提取文件路径
+                    file_path = line.split('结果已导出到:')[-1].strip()
+                    actual_output_files.append(file_path)
+                    break
 
             # 打印算法输出的关键信息
             if run_idx == 0:  # 只在第一次运行时打印详细输出
@@ -97,20 +109,18 @@ def run_benchmark(test_limit=100, num_runs=3):
     print("=" * 80)
     print()
 
-    # 输出CSV路径
-    csv_path = os.path.join(
-        os.path.dirname(__file__),
-        'output',
-        output_file
-    )
-    print(f"输出文件: {csv_path}")
+    # 输出实际生成的文件列表
+    if actual_output_files:
+        print(f"输出文件（最新）: {actual_output_files[-1]}")
+        if len(actual_output_files) > 1:
+            print(f"  所有输出文件: {len(actual_output_files)} 个")
 
     return {
         'avg': avg_time,
         'min': min_time,
         'max': max_time,
         'times': times,
-        'output_file': csv_path
+        'output_files': actual_output_files
     }
 
 
