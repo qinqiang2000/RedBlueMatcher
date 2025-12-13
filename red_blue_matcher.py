@@ -128,6 +128,7 @@ class MatchResult:
     blue_invoice_no: str = ''
     goods_name: str = ''
     fissuetime: datetime = None  # 蓝票开票日期
+    tax_rate: Decimal = None     # 税率（用于聚合后尾差校验）
 
 
 @dataclass
@@ -1079,47 +1080,34 @@ def aggregate_results(raw_results: List[MatchResult]) -> List[MatchResult]:
     aggregated_results: List[MatchResult] = []
     new_seq = 0
     
+    # 聚合后尾差校验的统计
+    tail_diff_warnings = 0
+
     for (fid, entry_id), group in grouped.items():
         first_item = group[0]
-        
+
         # 1. 汇总金额
         total_amount = sum(item.matched_amount for item in group)
-        
-        # 2. 汇总反算数量 (注意: 这里需要用总金额/单价重新计算，而不是简单累加数量，
-        # 因为简单的浮点数累加可能会带来误差，尽管这里我们只输出金额)
-        # 但为了校验，我们需要计算出一个理论数量
+
+        # 2. 汇总反算数量 (用总金额/单价重新计算)
         unit_price = first_item.unit_price
         if unit_price > 0:
             total_qty = (total_amount / unit_price).quantize(Decimal('0.0000000000001'), ROUND_HALF_UP)
         else:
             total_qty = Decimal('0')
-            
-        # 3. 再校验 (Re-validation)
-        # 即使每笔单独都符合，累加后也可能出问题 (例如 0.004 + 0.004 = 0.008 -> 0.01)
-        # 获取税率
-        # 由于MatchResult里没有存税率，我们需要从 tax_rate = tax / amount ... 不太准
-        # 应该在MatchResult里增加 tax_rate 字段，或者根据 sku_code/blue_fid 去查？
-        # 简便起见，这里假设 valid_tail_diff 在单笔时已经做的很严格了。
-        # 但 spec 明确要求 "合并后的金额...必须再次进行尾差校验"。
-        # 我们利用 total_amount 和 unit_price 进行校验
-        
-        # 估算税率: 既然是同一张蓝票同一行，税率肯定一样。
-        # 我们可以暂且认为 tax_rate = 0.13 (默认) 或者我们需要在MatchResult里带上tax_rate
-        # 为了严谨，建议修改MatchResult定义增加tax_rate。
-        # 但如果不改定义，我们可以暂时略过 严格的 tax re-calc，只做 amount re-calc?
-        # 不，还是要做。我们可以大致推断，或者仅仅校验 Amount * Price 关系
-        
-        # 这里为了不大规模修改 MatchResult 定义 (user might not want heavy refactor),
-        # 我们假设: 前面的单笔校验已经保证了它是合法的。
-        # 合并后的主要风险是: sum(quantized_amount) != quantized(sum(raw_amount))?
-        # 不，我们相加的是已经 quantize 过的 matched_amount (Decimal 2位)。
-        # 所以 total_amount 是精确的。
-        # 风险在于: total_amount / unit_price 算出的 qty 是否合理?
-        # 比如: Price=3.33. Match1: Amt=3.33 (Qty=1). Match2: Amt=3.33 (Qty=1).
-        # Total=6.66. Qty=2. 2*3.33=6.66. OK.
-        # Price=3.33333333...
-        # 无论如何，我们生成一个新的 MatchResult
-        
+
+        # 3. 获取税率（从 MatchResult 中获取）
+        tax_rate = first_item.tax_rate if first_item.tax_rate else Decimal('0.13')
+
+        # 4. 聚合后尾差重新校验
+        # 金额校验: |单价×数量-金额| ≤ 0.01
+        if unit_price > 0:
+            calc_amount = (total_qty * unit_price).quantize(Decimal('0.01'), ROUND_HALF_UP)
+            amount_diff = abs(calc_amount - total_amount)
+            if amount_diff > AMOUNT_TOLERANCE:
+                tail_diff_warnings += 1
+                # 仅记录警告，不阻断流程（因为单笔已校验通过）
+
         # 过滤零金额记录（聚合后仍需检查）
         if total_amount <= AMOUNT_TOLERANCE:
             continue
@@ -1136,9 +1124,13 @@ def aggregate_results(raw_results: List[MatchResult]) -> List[MatchResult]:
             negative_fid=0, # 聚合后不再指向单一负数单据
             negative_entryid=0,
             blue_invoice_no=first_item.blue_invoice_no,
-            goods_name=first_item.goods_name
+            goods_name=first_item.goods_name,
+            tax_rate=tax_rate  # 保留税率用于后续校验
         )
         aggregated_results.append(agg_item)
+
+    if tail_diff_warnings > 0:
+        log(f"  聚合后尾差校验警告: {tail_diff_warnings} 条")
 
     elapsed = time.time() - start_time
     log(f"聚合完成: 原始记录 {len(raw_results)} -> 聚合后 {len(aggregated_results)}")

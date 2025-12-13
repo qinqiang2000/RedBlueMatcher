@@ -518,6 +518,82 @@ def audit_negative_amount_check(csv_results: list) -> dict:
     return result
 
 
+def audit_unit_price_consistency(conn, csv_results: list) -> dict:
+    """
+    稽核9: 单价一致性检查
+    - 验证 红票单价 = 蓝票单价（约束：红票单价必须与蓝票单价一致）
+    """
+    log("")
+    log("="*60)
+    log("稽核9: 单价一致性检查")
+    log("="*60)
+
+    PRICE_TOLERANCE = Decimal('0.0000000001')  # 10位小数容差
+
+    result = {
+        'name': '单价一致性',
+        'passed': True,
+        'details': {
+            'checked_count': 0,
+            'mismatch_count': 0,
+            'mismatch_items': []
+        }
+    }
+
+    # 收集需要验证的蓝票行
+    to_check = {}
+    for row in csv_results:
+        key = (row['该 SKU 红冲对应蓝票的fid'], row['该 SKU 红冲对应蓝票的发票行号'])
+        to_check[key] = Decimal(row['该 SKU红冲对应蓝票行的可红冲单价'])
+
+    log(f"  待检查记录数: {len(to_check):,}")
+    result['details']['checked_count'] = len(to_check)
+
+    # 从数据库批量查询蓝票单价
+    tables = get_tables()
+    fids = list(set(k[0] for k in to_check.keys()))
+    db_prices = {}
+    batch_size = 1000
+
+    for i in range(0, len(fids), batch_size):
+        batch_fids = fids[i:i+batch_size]
+        placeholders = ','.join(['%s'] * len(batch_fids))
+
+        with conn.cursor() as cur:
+            cur.execute(f"""
+                SELECT fid, fentryid, fredprice
+                FROM {tables.vatinvoice_item}
+                WHERE fid IN ({placeholders})
+            """, batch_fids)
+
+            for row in cur.fetchall():
+                db_prices[(str(row[0]), str(row[1]))] = Decimal(str(row[2])) if row[2] else Decimal('0')
+
+    # 比较单价
+    mismatch_items = []
+    for (fid, entryid), csv_price in to_check.items():
+        db_price = db_prices.get((fid, entryid), Decimal('0'))
+        if abs(csv_price - db_price) > PRICE_TOLERANCE:
+            mismatch_items.append({
+                'fid': fid,
+                'entryid': entryid,
+                'csv_price': float(csv_price),
+                'db_price': float(db_price)
+            })
+
+    if mismatch_items:
+        result['passed'] = False
+        result['details']['mismatch_count'] = len(mismatch_items)
+        result['details']['mismatch_items'] = mismatch_items[:10]
+        log(f"  ⚠️ 单价不一致: {len(mismatch_items)} 条")
+        for item in mismatch_items[:5]:
+            log(f"    fid={item['fid']}: CSV={item['csv_price']:.10f}, DB={item['db_price']:.10f}")
+    else:
+        log(f"  结果: ✅ 单价全部一致")
+
+    return result
+
+
 def generate_summary(audit_results: list) -> dict:
     """生成稽核汇总"""
     log("")
@@ -586,6 +662,7 @@ def main(csv_path: str):
         audit_results.append(audit_full_row_flag(csv_results))
         audit_results.append(audit_duplicate_check(csv_results))
         audit_results.append(audit_negative_amount_check(csv_results))
+        audit_results.append(audit_unit_price_consistency(conn, csv_results))
 
         # 生成汇总
         summary = generate_summary(audit_results)

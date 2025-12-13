@@ -190,7 +190,8 @@ class FFDStrategy(MatchingStrategy):
                             negative_entryid=negative.fentryid,
                             blue_invoice_no=blue.finvoiceno,
                             goods_name=negative.fgoodsname,
-                            fissuetime=blue.fissuetime
+                            fissuetime=blue.fissuetime,
+                            tax_rate=Decimal(blue.ftaxrate) if blue.ftaxrate else Decimal('0.13')
                         ))
 
                         # FFD 快速路径一次性完成
@@ -292,7 +293,8 @@ class FFDStrategy(MatchingStrategy):
                 negative_entryid=negative.fentryid,
                 blue_invoice_no=blue.finvoiceno,
                 goods_name=negative.fgoodsname,
-                fissuetime=blue.fissuetime
+                fissuetime=blue.fissuetime,
+                tax_rate=Decimal(blue.ftaxrate) if blue.ftaxrate else Decimal('0.13')
             ))
 
             remaining_amount -= final_match_amount
