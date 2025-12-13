@@ -1,4 +1,4 @@
 output/
 .DS_Store
-.logs
+logs
 __pycache__/
