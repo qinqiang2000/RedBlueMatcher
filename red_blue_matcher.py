@@ -166,11 +166,26 @@ class FailedMatch:
 
 
 @dataclass
+class InvoiceRedFlushSummary:
+    """整票红冲判断汇总（按蓝票维度统计）"""
+    seq: int                              # 序号
+    blue_fid: int                         # 红冲计算结果对应的蓝票fid
+    blue_invoice_no: str                  # 红冲计算结果对应的蓝票发票号码
+    blue_issue_date: datetime             # 红冲计算结果对应的蓝票开票日期
+    original_line_count: int              # 红冲计算结果对应蓝票的总行数（原始）
+    original_total_amount: Decimal        # 红冲计算结果对应蓝票的总金额（原始）
+    total_remain_amount: Decimal          # 红冲计算结果对应蓝票的总剩余可红冲金额
+    matched_line_count: int               # 本次红冲结果运算扣除的蓝票总行数
+    matched_total_amount: Decimal         # 本次红冲结果运算扣除的蓝票总金额
+
+
+@dataclass
 class MatchingReport:
     """完整的匹配报告"""
-    match_results: List[MatchResult]    # 成功匹配的明细
-    sku_summaries: List[SKUSummary]     # SKU统计汇总
-    failed_matches: List[FailedMatch]   # 匹配失败记录
+    match_results: List[MatchResult]              # 成功匹配的明细
+    sku_summaries: List[SKUSummary]               # SKU统计汇总
+    failed_matches: List[FailedMatch]             # 匹配失败记录
+    invoice_summaries: List[InvoiceRedFlushSummary] = field(default_factory=list)  # 整票红冲判断汇总
 
 
 def get_db_connection():
@@ -443,6 +458,46 @@ def load_blues_by_sku_batch(conn,
             blue_pool[key].append(item)
 
     return dict(blue_pool)
+
+
+def load_invoice_original_data(conn, blue_fids: List[int]) -> Dict[int, Dict]:
+    """
+    批量查询蓝票的原始总行数和总金额
+
+    Args:
+        conn: 数据库连接
+        blue_fids: 本次红冲涉及的蓝票fid列表
+
+    Returns:
+        {fid: {'original_line_count', 'original_total_amount', 'total_remain_amount'}}
+    """
+    if not blue_fids:
+        return {}
+
+    placeholders = ','.join(['%s'] * len(blue_fids))
+    sql = f"""
+        SELECT
+            v.fid,
+            COUNT(DISTINCT vi.fentryid) as original_line_count,
+            SUM(vi.famount) as original_total_amount,
+            SUM(vi.fitemremainredamount) as total_remain_amount
+        FROM t_sim_vatinvoice_1201 v
+        JOIN t_sim_vatinvoice_item_1201 vi ON v.fid = vi.fid
+        WHERE v.fid IN ({placeholders})
+        GROUP BY v.fid
+    """
+
+    invoice_data = {}
+    with conn.cursor() as cur:
+        cur.execute(sql, blue_fids)
+        for row in cur.fetchall():
+            invoice_data[row[0]] = {
+                'original_line_count': row[1],
+                'original_total_amount': Decimal(str(row[2])) if row[2] else Decimal('0'),
+                'total_remain_amount': Decimal(str(row[3])) if row[3] else Decimal('0')
+            }
+
+    return invoice_data
 
 
 def load_batch_worker(task_args):
@@ -952,6 +1007,69 @@ def generate_sku_summaries(match_results: List[MatchResult],
     return summaries
 
 
+def generate_invoice_summaries(match_results: List[MatchResult],
+                               conn) -> List[InvoiceRedFlushSummary]:
+    """
+    从匹配结果生成整票红冲判断汇总
+
+    Args:
+        match_results: 匹配结果列表
+        conn: 数据库连接
+
+    Returns:
+        整票红冲判断汇总列表
+    """
+    # 第一阶段：按蓝票fid分组统计本次红冲数据
+    invoice_matched_stats: Dict[int, Dict] = defaultdict(lambda: {
+        'blue_invoice_no': '',
+        'blue_issue_date': None,
+        'matched_total_amount': Decimal('0'),
+        'matched_entry_ids': set()
+    })
+
+    for r in match_results:
+        fid = r.blue_fid
+        invoice_matched_stats[fid]['matched_total_amount'] += r.matched_amount
+        invoice_matched_stats[fid]['matched_entry_ids'].add(r.blue_entryid)
+
+        # 记录发票号码和开票日期（所有行相同，取第一个）
+        if not invoice_matched_stats[fid]['blue_invoice_no']:
+            invoice_matched_stats[fid]['blue_invoice_no'] = r.blue_invoice_no
+            invoice_matched_stats[fid]['blue_issue_date'] = r.fissuetime
+
+    # 计算每张票的匹配行数
+    for fid, stats in invoice_matched_stats.items():
+        stats['matched_line_count'] = len(stats['matched_entry_ids'])
+
+    # 第二阶段：批量查询蓝票原始数据
+    blue_fids = list(invoice_matched_stats.keys())
+    invoice_original_data = load_invoice_original_data(conn, blue_fids)
+
+    # 第三阶段：合并数据生成汇总
+    summaries = []
+    for idx, fid in enumerate(sorted(invoice_matched_stats.keys()), start=1):
+        matched = invoice_matched_stats[fid]
+        original = invoice_original_data.get(fid, {
+            'original_line_count': 0,
+            'original_total_amount': Decimal('0'),
+            'total_remain_amount': Decimal('0')
+        })
+
+        summaries.append(InvoiceRedFlushSummary(
+            seq=idx,
+            blue_fid=fid,
+            blue_invoice_no=matched['blue_invoice_no'],
+            blue_issue_date=matched['blue_issue_date'],
+            original_line_count=original['original_line_count'],
+            original_total_amount=original['original_total_amount'],
+            total_remain_amount=original['total_remain_amount'],
+            matched_line_count=matched['matched_line_count'],
+            matched_total_amount=matched['matched_total_amount']
+        ))
+
+    return summaries
+
+
 def run_matching_algorithm(conn, test_limit: Optional[int] = None) -> MatchingReport:
     """
     运行匹蓝算法主流程
@@ -980,7 +1098,7 @@ def run_matching_algorithm(conn, test_limit: Optional[int] = None) -> MatchingRe
     perf.stop("加载负数单据")
     if not negative_items:
         print("没有待处理的负数单据")
-        return MatchingReport(match_results=[], sku_summaries=[], failed_matches=[])
+        return MatchingReport(match_results=[], sku_summaries=[], failed_matches=[], invoice_summaries=[])
 
     # 1.1 收集原始负数单据统计（按SKU分组）
     perf.start("收集原始统计")
@@ -1162,6 +1280,11 @@ def run_matching_algorithm(conn, test_limit: Optional[int] = None) -> MatchingRe
         ))
     perf.stop("生成失败匹配列表")
 
+    # 9. 生成整票红冲判断汇总
+    perf.start("生成整票红冲判断汇总")
+    invoice_summaries = generate_invoice_summaries(results, conn)
+    perf.stop("生成整票红冲判断汇总")
+
     # 停止总计时
     perf.stop("总耗时")
 
@@ -1179,7 +1302,8 @@ def run_matching_algorithm(conn, test_limit: Optional[int] = None) -> MatchingRe
     return MatchingReport(
         match_results=results,
         sku_summaries=sku_summaries,
-        failed_matches=failed_matches
+        failed_matches=failed_matches,
+        invoice_summaries=invoice_summaries
     )
 
 
@@ -1350,7 +1474,7 @@ def main():
             # 导出结果（带单独计时）
             export_start = time.time()
             writer = ResultWriter(output_config)
-            output_file = writer.write(final_results, report.sku_summaries, report.failed_matches)
+            output_file = writer.write(final_results, report.sku_summaries, report.failed_matches, report.invoice_summaries)
             export_elapsed = time.time() - export_start
             log(f"结果已导出到: {output_file}")
             log(f"导出耗时: {export_elapsed:.2f}秒")

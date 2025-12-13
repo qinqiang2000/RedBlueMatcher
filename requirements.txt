@@ -1,0 +1,8 @@
+# 数据库驱动
+psycopg2-binary==2.9.10
+
+# 数据处理
+numpy==1.26.4
+
+# Excel 导出（高性能）
+xlsxwriter==3.2.0

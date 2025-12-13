@@ -13,7 +13,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from typing import List, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from red_blue_matcher import MatchResult, SKUSummary, FailedMatch
+    from red_blue_matcher import MatchResult, SKUSummary, FailedMatch, InvoiceRedFlushSummary
 
 
 @dataclass
@@ -81,7 +81,8 @@ class ResultWriter:
     def write(self,
               results: List['MatchResult'],
               sku_summaries: List['SKUSummary'] = None,
-              failed_matches: List['FailedMatch'] = None) -> str:
+              failed_matches: List['FailedMatch'] = None,
+              invoice_summaries: List['InvoiceRedFlushSummary'] = None) -> str:
         """
         写入匹配结果
 
@@ -89,6 +90,7 @@ class ResultWriter:
             results: 匹配结果列表
             sku_summaries: SKU统计汇总列表
             failed_matches: 匹配失败记录列表
+            invoice_summaries: 整票红冲判断汇总列表
 
         Returns:
             实际写入的文件路径
@@ -96,7 +98,7 @@ class ResultWriter:
         filepath = self.build_filepath()
 
         if self.config.format == 'xlsx':
-            self._write_xlsx(results, filepath, sku_summaries, failed_matches)
+            self._write_xlsx(results, filepath, sku_summaries, failed_matches, invoice_summaries)
         else:
             self._write_csv(results, filepath)
 
@@ -188,6 +190,31 @@ class ResultWriter:
             f.failed_reason                             # 失败原因
         ]
 
+    def _invoice_summary_to_row(self, inv: 'InvoiceRedFlushSummary') -> list:
+        """
+        将单个 InvoiceRedFlushSummary 转换为输出行
+
+        Args:
+            inv: 整票红冲判断汇总对象
+
+        Returns:
+            输出行数据列表
+        """
+        # 格式化开票日期
+        issue_date = inv.blue_issue_date.strftime('%Y-%m-%d') if inv.blue_issue_date else ''
+
+        return [
+            inv.seq,                                      # 序号
+            inv.blue_fid,                                 # 红冲计算结果对应的蓝票fid
+            inv.blue_invoice_no,                          # 红冲计算结果对应的蓝票发票号码
+            issue_date,                                   # 红冲计算结果对应的蓝票开票日期
+            inv.original_line_count,                      # 红冲计算结果对应蓝票的总行数（原始）
+            f"{inv.original_total_amount:.2f}",           # 红冲计算结果对应蓝票的总金额（原始）
+            f"{inv.total_remain_amount:.2f}",             # 红冲计算结果对应蓝票的总剩余可红冲金额
+            inv.matched_line_count,                       # 本次红冲结果运算扣除的蓝票总行数
+            f"{inv.matched_total_amount:.2f}"             # 本次红冲结果运算扣除的蓝票总金额
+        ]
+
     def _write_csv(self, results: List['MatchResult'], filepath: str):
         """CSV输出"""
         with open(filepath, 'w', newline='', encoding='utf-8-sig') as f:
@@ -200,64 +227,67 @@ class ResultWriter:
                     results: List['MatchResult'],
                     filepath: str,
                     sku_summaries: List['SKUSummary'] = None,
-                    failed_matches: List['FailedMatch'] = None):
+                    failed_matches: List['FailedMatch'] = None,
+                    invoice_summaries: List['InvoiceRedFlushSummary'] = None):
         """
         XLSX输出（支持多个sheet）
 
-        依赖: openpyxl
-        安装: pip install openpyxl
+        依赖: xlsxwriter
+        安装: pip install xlsxwriter
         """
         try:
-            from openpyxl import Workbook
-            from openpyxl.styles import Font, Alignment
+            import xlsxwriter
         except ImportError:
             raise ImportError(
-                "导出xlsx格式需要安装openpyxl: pip install openpyxl"
+                "导出xlsx格式需要安装xlsxwriter: pip install xlsxwriter"
             )
 
-        wb = Workbook()
+        # 创建工作簿
+        wb = xlsxwriter.Workbook(filepath, {'constant_memory': True})
+
+        # 定义格式
+        header_format = wb.add_format({'bold': True})
+        text_format = wb.add_format({'num_format': '@'})  # 文本格式
 
         # Sheet 1: SKU 红冲扣除蓝票明细表
-        ws1 = wb.active
-        ws1.title = self.config.sheet_name
+        ws1 = wb.add_worksheet(self.config.sheet_name)
 
         # 写入表头
-        ws1.append(self.HEADERS)
-        # 表头加粗
-        for cell in ws1[1]:
-            cell.font = Font(bold=True)
+        for col, header in enumerate(self.HEADERS):
+            ws1.write(0, col, header, header_format)
 
         # 写入数据
-        for r in results:
-            ws1.append(self._result_to_row(r))
+        # 列索引: C=2(fid), D=3(发票号码), F=5(发票行号) - xlsxwriter从0开始
+        text_columns = [2, 3, 5]
 
-        # 将大整数列格式化为文本（防止科学计数法显示）
-        # 列索引: C=3(fid), D=4(发票号码), F=6(发票行号)
-        text_columns = [3, 4, 6]  # C, D, F 列
-        for row in range(2, ws1.max_row + 1):  # 从第2行开始（跳过表头）
-            for col in text_columns:
-                cell = ws1.cell(row=row, column=col)
-                # 将值转换为字符串，添加前缀单引号强制为文本格式
-                if cell.value is not None:
-                    cell.value = str(cell.value)
-                    cell.number_format = '@'  # 设置为文本格式
+        for row_idx, r in enumerate(results, start=1):
+            row_data = self._result_to_row(r)
+            for col_idx, value in enumerate(row_data):
+                # 对大整数列使用文本格式
+                if col_idx in text_columns:
+                    ws1.write_string(row_idx, col_idx, str(value), text_format)
+                else:
+                    ws1.write(row_idx, col_idx, value)
 
         # Sheet 2: SKU 统计汇总表
         if sku_summaries:
-            ws2 = wb.create_sheet(title='SKU 统计汇总表')
-            self._write_summary_sheet(ws2, sku_summaries)
+            ws2 = wb.add_worksheet('SKU 统计汇总表')
+            self._write_summary_sheet_xlsxwriter(wb, ws2, sku_summaries, header_format)
 
         # Sheet 3: 匹配失败记录表
         if failed_matches:
-            ws3 = wb.create_sheet(title='匹配失败记录表')
-            self._write_failed_sheet(ws3, failed_matches)
+            ws3 = wb.add_worksheet('匹配失败记录表')
+            self._write_failed_sheet_xlsxwriter(wb, ws3, failed_matches, header_format, text_format)
 
-        wb.save(filepath)
+        # Sheet 4: 整票红冲判断表
+        if invoice_summaries:
+            ws4 = wb.add_worksheet('整票红冲判断表')
+            self._write_invoice_summary_sheet_xlsxwriter(wb, ws4, invoice_summaries, header_format, text_format)
 
-    def _write_summary_sheet(self, ws, summaries: List['SKUSummary']):
-        """写入 SKU 统计汇总表"""
-        from openpyxl.styles import Font
+        wb.close()
 
+    def _write_summary_sheet_xlsxwriter(self, wb, ws, summaries: List['SKUSummary'], header_format):
+        """写入 SKU 统计汇总表（xlsxwriter版本）"""
         # 表头
         headers = [
             '序号',
@@ -272,19 +302,18 @@ class ResultWriter:
             '该 SKU红冲扣除蓝票上，对应蓝票行剩余可红冲金额的合计总金额'
         ]
 
-        ws.append(headers)
-        # 表头加粗
-        for cell in ws[1]:
-            cell.font = Font(bold=True)
+        # 写入表头
+        for col, header in enumerate(headers):
+            ws.write(0, col, header, header_format)
 
         # 写入数据
-        for s in summaries:
-            ws.append(self._summary_to_row(s))
+        for row_idx, s in enumerate(summaries, start=1):
+            row_data = self._summary_to_row(s)
+            for col_idx, value in enumerate(row_data):
+                ws.write(row_idx, col_idx, value)
 
-    def _write_failed_sheet(self, ws, failed_matches: List['FailedMatch']):
-        """写入匹配失败记录表"""
-        from openpyxl.styles import Font
-
+    def _write_failed_sheet_xlsxwriter(self, wb, ws, failed_matches: List['FailedMatch'], header_format, text_format):
+        """写入匹配失败记录表（xlsxwriter版本）"""
         # 表头
         headers = [
             '序号',
@@ -300,22 +329,51 @@ class ResultWriter:
             '失败原因'
         ]
 
-        ws.append(headers)
-        # 表头加粗
-        for cell in ws[1]:
-            cell.font = Font(bold=True)
+        # 写入表头
+        for col, header in enumerate(headers):
+            ws.write(0, col, header, header_format)
+
+        # 列索引: B=1(fid), C=2(行号) - xlsxwriter从0开始
+        text_columns = [1, 2]
 
         # 写入数据
-        for f in failed_matches:
-            ws.append(self._failed_to_row(f))
+        for row_idx, f in enumerate(failed_matches, start=1):
+            row_data = self._failed_to_row(f)
+            for col_idx, value in enumerate(row_data):
+                # 对大整数列使用文本格式
+                if col_idx in text_columns:
+                    ws.write_string(row_idx, col_idx, str(value), text_format)
+                else:
+                    ws.write(row_idx, col_idx, value)
 
-        # 将大整数列格式化为文本（防止科学计数法显示）
-        # 列索引: B=2(fid), C=3(行号)
-        text_columns = [2, 3]  # B, C 列
-        for row in range(2, ws.max_row + 1):  # 从第2行开始（跳过表头）
-            for col in text_columns:
-                cell = ws.cell(row=row, column=col)
-                # 将值转换为字符串，添加前缀单引号强制为文本格式
-                if cell.value is not None:
-                    cell.value = str(cell.value)
-                    cell.number_format = '@'  # 设置为文本格式
+    def _write_invoice_summary_sheet_xlsxwriter(self, wb, ws, invoice_summaries: List['InvoiceRedFlushSummary'], header_format, text_format):
+        """写入整票红冲判断表（xlsxwriter版本）"""
+        # 表头
+        headers = [
+            '序号',
+            '红冲计算结果对应的蓝票fid',
+            '红冲计算结果对应的蓝票发票号码',
+            '红冲计算结果对应的蓝票开票日期',
+            '红冲计算结果对应蓝票的总行数（原始）',
+            '红冲计算结果对应蓝票的总金额（原始）',
+            '红冲计算结果对应蓝票的总剩余可红冲金额',
+            '本次红冲结果运算扣除的蓝票总行数',
+            '本次红冲结果运算扣除的蓝票总金额'
+        ]
+
+        # 写入表头
+        for col, header in enumerate(headers):
+            ws.write(0, col, header, header_format)
+
+        # 列索引: B=1(fid), C=2(发票号码) - xlsxwriter从0开始
+        text_columns = [1, 2]
+
+        # 写入数据
+        for row_idx, inv in enumerate(invoice_summaries, start=1):
+            row_data = self._invoice_summary_to_row(inv)
+            for col_idx, value in enumerate(row_data):
+                # 对大整数列使用文本格式
+                if col_idx in text_columns:
+                    ws.write_string(row_idx, col_idx, str(value), text_format)
+                else:
+                    ws.write(row_idx, col_idx, value)
