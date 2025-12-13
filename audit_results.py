@@ -11,6 +11,8 @@ from decimal import Decimal, ROUND_HALF_UP
 from collections import defaultdict
 from datetime import datetime
 import sys
+from pathlib import Path
+from openpyxl import load_workbook
 from config import load_config, get_db_config, get_tables
 
 # 容差
@@ -24,10 +26,28 @@ def log(msg: str):
 
 
 def load_csv_results(csv_path: str) -> list:
-    """加载CSV匹配结果"""
-    with open(csv_path, 'r', encoding='utf-8-sig') as f:
-        reader = csv.DictReader(f)
-        return list(reader)
+    """加载Excel匹配结果"""
+    # 读取 Excel 文件
+    wb = load_workbook(csv_path, read_only=True, data_only=True)
+    # 假设数据在第一个工作表
+    ws = wb.active
+
+    # 获取表头
+    headers = [cell.value for cell in next(ws.iter_rows(min_row=1, max_row=1))]
+
+    # 读取数据行
+    results = []
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        # 将行数据转换为字典
+        row_dict = {}
+        for i, value in enumerate(row):
+            if i < len(headers) and headers[i]:
+                # 将所有值转换为字符串以保持与CSV读取的一致性
+                row_dict[headers[i]] = str(value) if value is not None else ''
+        results.append(row_dict)
+
+    wb.close()
+    return results
 
 
 def audit_balance_check(conn, csv_results: list) -> dict:
