@@ -134,6 +134,45 @@ class MatchResult:
     fissuetime: datetime = None  # 蓝票开票日期
 
 
+@dataclass
+class SKUSummary:
+    """SKU统计汇总"""
+    seq: int                        # 序号
+    sku_code: str                   # SKU编码
+    original_total_amount: Decimal  # 待红冲SKU总金额（原始负数单据，不含税）
+    original_total_quantity: Decimal # 待红冲SKU总数量（原始负数单据）
+    original_avg_price: Decimal     # 待红冲SKU平均单价
+    matched_blue_count: int         # 该SKU红冲扣除蓝票的总数量（票数）
+    matched_total_amount: Decimal   # 该SKU红冲扣除蓝票的总金额
+    matched_total_quantity: Decimal # 该SKU红冲扣除蓝票的总数量（按金额/单价计算）
+    matched_line_count: int         # 该SKU红冲扣除蓝票的总行数
+    remaining_blue_amount: Decimal  # 该SKU红冲扣除蓝票上，剩余可红冲金额合计
+
+
+@dataclass
+class FailedMatch:
+    """匹配失败记录"""
+    seq: int                    # 序号
+    negative_fid: int           # 负数单据fid
+    negative_entryid: int       # 负数单据行号
+    negative_billno: str        # 负数单据编号
+    sku_code: str               # SKU编码
+    goods_name: str             # 商品名称
+    tax_rate: str               # 税率
+    amount: Decimal             # 金额（负数）
+    quantity: Decimal           # 数量（负数）
+    tax: Decimal                # 税额（负数）
+    failed_reason: str          # 失败原因
+
+
+@dataclass
+class MatchingReport:
+    """完整的匹配报告"""
+    match_results: List[MatchResult]    # 成功匹配的明细
+    sku_summaries: List[SKUSummary]     # SKU统计汇总
+    failed_matches: List[FailedMatch]   # 匹配失败记录
+
+
 def get_db_connection():
     """获取数据库连接"""
     return psycopg2.connect(**DB_CONFIG)
@@ -430,7 +469,7 @@ def load_batch_worker(task_args):
 
 
 
-def match_group_worker(args: Tuple) -> Tuple[List[dict], int, int]:
+def match_group_worker(args: Tuple) -> Tuple[List[dict], int, int, List[dict]]:
     """
     多进程匹配工作函数（顶层函数，满足pickle要求）
     处理单个分组的所有负数单据匹配
@@ -442,8 +481,9 @@ def match_group_worker(args: Tuple) -> Tuple[List[dict], int, int]:
               blue_candidates_data: List[dict] - 蓝票数据（已序列化）
 
     Returns:
-        (local_results_data, matched_count, failed_count)
+        (local_results_data, matched_count, failed_count, failed_items_data)
         local_results_data 为 dict 列表，便于跨进程传输
+        failed_items_data 为失败的负数单据及原因
     """
     group_key, neg_items_data, blue_candidates_data = args
     spbm, taxrate = group_key[2], group_key[3]
@@ -456,17 +496,23 @@ def match_group_worker(args: Tuple) -> Tuple[List[dict], int, int]:
     temp_pool = {(spbm, taxrate): blue_candidates}
 
     local_results = []
+    failed_items = []  # 记录失败的负数单据
     seq_counter = [0]  # 本地序号，后续统一重编
     matched_count = 0
     failed_count = 0
 
     for neg in neg_items:
         # 启用延迟校验模式（skip_validation=True），Phase 2 再批量校验
-        success = match_single_negative(neg, temp_pool, local_results, seq_counter, skip_validation=True)
+        success, reason = match_single_negative(neg, temp_pool, local_results, seq_counter, skip_validation=True)
         if success:
             matched_count += 1
         else:
             failed_count += 1
+            # 记录失败信息
+            failed_items.append({
+                'negative': negative_item_to_dict(neg),
+                'reason': reason
+            })
 
     # 将结果转换为 dict 列表便于跨进程传输
     results_data = [
@@ -487,7 +533,7 @@ def match_group_worker(args: Tuple) -> Tuple[List[dict], int, int]:
         for r in local_results
     ]
 
-    return results_data, matched_count, failed_count
+    return results_data, matched_count, failed_count, failed_items
 
 
 def negative_item_to_dict(item: NegativeItem) -> dict:
@@ -656,7 +702,7 @@ def match_single_negative(negative: NegativeItem,
                           blue_pool: Dict[Tuple[str, str], List[BlueInvoiceItem]],
                           results: List[MatchResult],
                           seq_counter: List[int],
-                          skip_validation: bool = False) -> bool:
+                          skip_validation: bool = False) -> Tuple[bool, str]:
     """
     为单个负数明细匹配蓝票
 
@@ -668,14 +714,15 @@ def match_single_negative(negative: NegativeItem,
         skip_validation: 是否跳过尾差校验（两阶段校验优化）
 
     Returns:
-        是否匹配成功
+        (是否匹配成功, 失败原因)
     """
     # 匹配键
     match_key = (negative.fspbm, negative.ftaxrate)
 
     if match_key not in blue_pool:
-        print(f"  警告: 找不到匹配的蓝票 - SKU: {negative.fspbm}, 税率: {negative.ftaxrate}")
-        return False
+        reason = f"找不到匹配的蓝票 - SKU: {negative.fspbm}, 税率: {negative.ftaxrate}"
+        print(f"  警告: {reason}")
+        return False, reason
 
     candidates = blue_pool[match_key]
 
@@ -719,7 +766,7 @@ def match_single_negative(negative: NegativeItem,
                 ))
 
                 # 精确匹配一次性完成
-                return True
+                return True, ""
 
     # 常规路径：遍历候选蓝票进行贪心匹配
     for blue in candidates:
@@ -834,14 +881,78 @@ def match_single_negative(negative: NegativeItem,
         remaining_amount -= final_match_amount
 
     if remaining_amount > AMOUNT_TOLERANCE:
-        print(f"  警告: 负数明细未完全匹配 - 单据: {negative.fbillno}, "
-              f"SKU: {negative.fspbm}, 剩余: {remaining_amount}")
-        return False
+        reason = f"负数明细未完全匹配 - 单据: {negative.fbillno}, SKU: {negative.fspbm}, 剩余: {remaining_amount}"
+        print(f"  警告: {reason}")
+        return False, reason
 
-    return True
+    return True, ""
 
 
-def run_matching_algorithm(conn, test_limit: Optional[int] = None) -> List[MatchResult]:
+def generate_sku_summaries(match_results: List[MatchResult],
+                           original_stats: Dict[str, Dict[str, Decimal]]) -> List[SKUSummary]:
+    """
+    从匹配结果生成 SKU 汇总统计
+
+    Args:
+        match_results: 匹配结果列表
+        original_stats: 原始负数单据统计 {sku_code: {'total_amount', 'total_quantity', 'goods_name'}}
+
+    Returns:
+        SKU 汇总列表
+    """
+    # 按 SKU 分组统计匹配结果
+    sku_matched_stats: Dict[str, Dict] = defaultdict(lambda: {
+        'total_amount': Decimal('0'),
+        'total_quantity': Decimal('0'),
+        'blue_count': set(),
+        'line_count': 0,
+        'remaining_amount': Decimal('0')
+    })
+
+    for r in match_results:
+        sku = r.sku_code
+        sku_matched_stats[sku]['total_amount'] += r.matched_amount
+        sku_matched_stats[sku]['total_quantity'] += (r.matched_amount / r.unit_price).quantize(
+            Decimal('0.0000000001'), ROUND_HALF_UP
+        )
+        sku_matched_stats[sku]['blue_count'].add((r.blue_fid, r.blue_entryid))
+        sku_matched_stats[sku]['line_count'] += 1
+        # 计算剩余金额
+        remaining_after = r.remain_amount_before - r.matched_amount
+        sku_matched_stats[sku]['remaining_amount'] += remaining_after
+
+    # 生成汇总列表
+    summaries = []
+    for idx, (sku, orig_stat) in enumerate(sorted(original_stats.items()), start=1):
+        matched_stat = sku_matched_stats.get(sku, {
+            'total_amount': Decimal('0'),
+            'total_quantity': Decimal('0'),
+            'blue_count': set(),
+            'line_count': 0,
+            'remaining_amount': Decimal('0')
+        })
+
+        orig_amount = orig_stat['total_amount']
+        orig_qty = orig_stat['total_quantity']
+        avg_price = (orig_amount / orig_qty).quantize(Decimal('0.10'), ROUND_HALF_UP) if orig_qty > 0 else Decimal('0')
+
+        summaries.append(SKUSummary(
+            seq=idx,
+            sku_code=sku,
+            original_total_amount=orig_amount,
+            original_total_quantity=orig_qty,
+            original_avg_price=avg_price,
+            matched_blue_count=len(matched_stat['blue_count']),
+            matched_total_amount=matched_stat['total_amount'],
+            matched_total_quantity=matched_stat['total_quantity'],
+            matched_line_count=matched_stat['line_count'],
+            remaining_blue_amount=matched_stat['remaining_amount']
+        ))
+
+    return summaries
+
+
+def run_matching_algorithm(conn, test_limit: Optional[int] = None) -> MatchingReport:
     """
     运行匹蓝算法主流程
 
@@ -850,7 +961,7 @@ def run_matching_algorithm(conn, test_limit: Optional[int] = None) -> List[Match
         test_limit: 测试模式下限制处理的负数单据数量
 
     Returns:
-        匹配结果列表
+        完整的匹配报告（包含匹配结果、SKU统计、失败记录）
     """
     # 初始化性能追踪器
     perf = PerformanceTracker()
@@ -869,7 +980,22 @@ def run_matching_algorithm(conn, test_limit: Optional[int] = None) -> List[Match
     perf.stop("加载负数单据")
     if not negative_items:
         print("没有待处理的负数单据")
-        return []
+        return MatchingReport(match_results=[], sku_summaries=[], failed_matches=[])
+
+    # 1.1 收集原始负数单据统计（按SKU分组）
+    perf.start("收集原始统计")
+    original_sku_stats: Dict[str, Dict[str, Decimal]] = defaultdict(lambda: {
+        'total_amount': Decimal('0'),
+        'total_quantity': Decimal('0'),
+        'goods_name': ''
+    })
+    for item in negative_items:
+        sku = item.fspbm
+        original_sku_stats[sku]['total_amount'] += abs(item.famount)
+        original_sku_stats[sku]['total_quantity'] += abs(item.fnum)
+        if not original_sku_stats[sku]['goods_name']:
+            original_sku_stats[sku]['goods_name'] = item.fgoodsname
+    perf.stop("收集原始统计")
 
     # 2. 按(销方税号, 购方税号, 商品编码, 税率)分组
     perf.start("数据分组")
@@ -960,6 +1086,7 @@ def run_matching_algorithm(conn, test_limit: Optional[int] = None) -> List[Match
     results: List[MatchResult] = []
     matched_count = 0
     failed_count = 0
+    failed_records = []  # 收集失败的负数单据
 
     # 准备多进程任务参数（需要序列化为dict）
     perf.start("准备匹配任务")
@@ -981,12 +1108,15 @@ def run_matching_algorithm(conn, test_limit: Optional[int] = None) -> List[Match
         results_list = pool.map(match_group_worker, match_tasks)
 
     # 合并结果
-    for results_data, local_matched, local_failed in results_list:
+    for results_data, local_matched, local_failed, failed_items_data in results_list:
         # 将 dict 转换回 MatchResult 对象
         for rd in results_data:
             results.append(MatchResult(**rd))
         matched_count += local_matched
         failed_count += local_failed
+        # 收集失败记录
+        for item in failed_items_data:
+            failed_records.append(item)
     perf.stop("多进程匹配")
 
     log(f"  Phase 1 匹配完成: {len(match_tasks)} 组, {len(results)} 条记录")
@@ -1007,6 +1137,31 @@ def run_matching_algorithm(conn, test_limit: Optional[int] = None) -> List[Match
     for idx, result in enumerate(results, start=1):
         result.seq = idx
 
+    # 7. 生成 SKU 汇总统计
+    perf.start("生成SKU汇总统计")
+    sku_summaries = generate_sku_summaries(results, original_sku_stats)
+    perf.stop("生成SKU汇总统计")
+
+    # 8. 生成失败匹配列表
+    perf.start("生成失败匹配列表")
+    failed_matches = []
+    for idx, item in enumerate(failed_records, start=1):
+        neg_data = item['negative']
+        failed_matches.append(FailedMatch(
+            seq=idx,
+            negative_fid=neg_data['fid'],
+            negative_entryid=neg_data['fentryid'],
+            negative_billno=neg_data['fbillno'],
+            sku_code=neg_data['fspbm'],
+            goods_name=neg_data['fgoodsname'],
+            tax_rate=neg_data['ftaxrate'],
+            amount=neg_data['famount'],
+            quantity=neg_data['fnum'],
+            tax=neg_data['ftax'],
+            failed_reason=item['reason']
+        ))
+    perf.stop("生成失败匹配列表")
+
     # 停止总计时
     perf.stop("总耗时")
 
@@ -1020,7 +1175,12 @@ def run_matching_algorithm(conn, test_limit: Optional[int] = None) -> List[Match
     # 打印性能摘要
     perf.print_summary()
 
-    return results
+    # 返回完整报告
+    return MatchingReport(
+        match_results=results,
+        sku_summaries=sku_summaries,
+        failed_matches=failed_matches
+    )
 
 
 def print_statistics(results: List[MatchResult]):
@@ -1181,16 +1341,16 @@ def main():
         conn = get_db_connection()
 
         # 执行匹配算法（注意：test_limit模式下不会更新数据库）
-        results = run_matching_algorithm(conn, test_limit=args.test_limit)
+        report = run_matching_algorithm(conn, test_limit=args.test_limit)
 
-        if results:
+        if report.match_results:
             # 执行聚合
-            final_results = aggregate_results(results)
+            final_results = aggregate_results(report.match_results)
 
             # 导出结果（带单独计时）
             export_start = time.time()
             writer = ResultWriter(output_config)
-            output_file = writer.write(final_results)
+            output_file = writer.write(final_results, report.sku_summaries, report.failed_matches)
             export_elapsed = time.time() - export_start
             log(f"结果已导出到: {output_file}")
             log(f"导出耗时: {export_elapsed:.2f}秒")
