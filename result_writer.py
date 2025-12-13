@@ -173,4 +173,15 @@ class ResultWriter:
         for r in results:
             ws.append(self._result_to_row(r))
 
+        # 将大整数列格式化为文本（防止科学计数法显示）
+        # 列索引: C=3(fid), D=4(发票号码), F=6(发票行号)
+        text_columns = [3, 4, 6]  # C, D, F 列
+        for row in range(2, ws.max_row + 1):  # 从第2行开始（跳过表头）
+            for col in text_columns:
+                cell = ws.cell(row=row, column=col)
+                # 将值转换为字符串，添加前缀单引号强制为文本格式
+                if cell.value is not None:
+                    cell.value = str(cell.value)
+                    cell.number_format = '@'  # 设置为文本格式
+
         wb.save(filepath)

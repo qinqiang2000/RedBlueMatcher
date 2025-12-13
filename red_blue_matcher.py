@@ -1155,9 +1155,9 @@ def parse_arguments():
     parser.add_argument(
         '--output',
         type=str,
-        default='match_results.csv',
+        default='match_results.xlsx',
         metavar='FILE',
-        help='输出CSV文件路径（默认: match_results.csv）'
+        help='输出XLSX文件路径（默认: match_results.xlsx）'
     )
 
     return parser.parse_args()
@@ -1172,8 +1172,9 @@ def main():
     # 配置输出（使用 ResultWriter 统一管理）
     output_config = OutputConfig(
         base_name=args.output,
-        format='csv',
-        add_timestamp=True
+        format='xlsx',
+        add_timestamp=True,
+        sheet_name='SKU 红冲扣除蓝票明细表'
     )
 
     try:
