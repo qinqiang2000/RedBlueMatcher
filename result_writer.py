@@ -24,6 +24,7 @@ class OutputConfig:
     add_timestamp: bool = True           # 是否添加时间戳
     output_dir: str = './output'         # 输出目录
     sheet_name: str = '匹配结果'          # xlsx sheet名称
+    algorithm: str = ''                  # 使用的算法名称
 
 
 class ResultWriter:
@@ -68,9 +69,15 @@ class ResultWriter:
 
         if self.config.add_timestamp:
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            filename = f"{base_name}_{timestamp}"
+            if self.config.algorithm:
+                filename = f"{base_name}_{self.config.algorithm}_{timestamp}"
+            else:
+                filename = f"{base_name}_{timestamp}"
         else:
-            filename = base_name
+            if self.config.algorithm:
+                filename = f"{base_name}_{self.config.algorithm}"
+            else:
+                filename = base_name
 
         # 添加扩展名
         ext = '.xlsx' if self.config.format == 'xlsx' else '.csv'

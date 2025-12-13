@@ -15,6 +15,7 @@ import csv
 import psycopg2
 import argparse
 import os
+import sys
 import time
 from decimal import Decimal, ROUND_HALF_UP
 from dataclasses import dataclass, field
@@ -1215,12 +1216,17 @@ def main():
 
     args = parse_arguments()
 
+    # 获取策略以获取规范化的算法名称
+    strategy = get_strategy(args.algorithm)
+    algorithm_name = strategy.name  # 确保使用规范化的策略名称
+
     # 配置输出（使用 ResultWriter 统一管理）
     output_config = OutputConfig(
         base_name=args.output,
         format='xlsx',
         add_timestamp=True,
-        sheet_name='SKU 红冲扣除蓝票明细表'
+        sheet_name='SKU 红冲扣除蓝票明细表',
+        algorithm=algorithm_name
     )
 
     try:
