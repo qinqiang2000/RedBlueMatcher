@@ -7,6 +7,8 @@ __pycache__/
 .env
 .env.local
 .env.*.local
+.env.dev
+.env.prod
 
 # 保留配置模板（不忽略）
 !.env.example
