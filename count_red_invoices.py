@@ -8,7 +8,7 @@
      因此需要开具的红票数量 = 被红冲的蓝票数量（即整票红冲判断表的行数）
 """
 
-import openpyxl
+from python_calamine import CalamineWorkbook
 import sys
 from pathlib import Path
 
@@ -24,29 +24,42 @@ def count_red_invoices(excel_file: str):
     print("=" * 60)
 
     try:
-        # 加载Excel文件
-        wb = openpyxl.load_workbook(excel_file, read_only=True)
-
-        # 读取Sheet 1: SKU 红冲扣除蓝票明细表
+        # 使用 openpyxl 流式读取（高效内存使用）
         sheet_name = 'SKU 红冲扣除蓝票明细表'
-        if sheet_name not in wb.sheetnames:
-            print(f"❌ 错误: 文件中未找到'{sheet_name}'")
-            print(f"   可用的sheet: {wb.sheetnames}")
+
+        # 检查文件大小
+        file_size = Path(excel_file).stat().st_size
+        print(f"📁 文件大小: {file_size / 1024 / 1024:.1f} MB")
+
+        # 使用 calamine 高速读取 (基于 Rust)
+        try:
+            print("🔄 使用calamine高速读取...")
+
+            wb = CalamineWorkbook.from_path(excel_file)
+
+            # 检查工作表是否存在
+            if sheet_name not in wb.sheet_names:
+                print(f"❌ 错误: 文件中未找到工作表 '{sheet_name}'")
+                print(f"   可用的工作表: {wb.sheet_names}")
+                return
+
+            ws = wb.get_sheet_by_name(sheet_name)
+            data = ws.to_python()
+
+            # 统计D列（索引3）唯一值，跳过表头
+            invoice_numbers = set()
+            for row in data[1:]:
+                if len(row) > 3 and row[3]:
+                    invoice_numbers.add(str(row[3]))
+
+            total_rows = len(data) - 1
+            unique_count = len(invoice_numbers)
+
+            print(f"✅ 处理完成: {total_rows:,} 行")
+
+        except Exception as e:
+            print(f"❌ 读取Excel时出错: {e}")
             return
-
-        ws = wb[sheet_name]
-
-        # 统计D列（蓝票发票号码）的唯一值
-        # D列索引为3（从0开始）
-        invoice_numbers = set()
-
-        for row in ws.iter_rows(min_row=2, min_col=4, max_col=4, values_only=True):
-            invoice_no = row[0]
-            if invoice_no:  # 过滤空值
-                invoice_numbers.add(invoice_no)
-
-        unique_count = len(invoice_numbers)
-        total_rows = ws.max_row - 1  # 总数据行数（去掉表头）
 
         print(f"\n📊 统计结果:")
         print(f"   明细表总行数: {total_rows} 行")
@@ -59,13 +72,14 @@ def count_red_invoices(excel_file: str):
 
         # 显示前10张不同的发票号码
         print(f"\n📋 发票号码样例（前10张）:")
-        for i, inv_no in enumerate(sorted(invoice_numbers)[:10], start=1):
+        sample_invoices = sorted(invoice_numbers)[:10]
+        for i, inv_no in enumerate(sample_invoices, start=1):
             print(f"   {i}. {inv_no}")
 
         if unique_count > 10:
             print(f"   ... (还有 {unique_count - 10} 张)")
 
-        wb.close()
+        # 显式关闭文件句柄（虽然pandas会自动处理）
 
         print("\n" + "=" * 60)
         print(f"✅ 结论: 需要开具 {unique_count} 张红票")
