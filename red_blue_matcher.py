@@ -190,7 +190,9 @@ def get_db_connection():
     return psycopg2.connect(**get_db_config())
 
 
-def load_negative_items(conn, limit: Optional[int] = None) -> List[NegativeItem]:
+def load_negative_items(conn, limit: Optional[int] = None,
+                        seller_taxno: Optional[str] = None,
+                        buyer_taxno: Optional[str] = None) -> List[NegativeItem]:
     """
     加载待处理的负数单据明细
     筛选条件: fbillproperties='-1' AND fconfirmstate='0'
@@ -198,6 +200,8 @@ def load_negative_items(conn, limit: Optional[int] = None) -> List[NegativeItem]
     Args:
         conn: 数据库连接
         limit: 限制加载的记录数（用于测试），None表示加载全部
+        seller_taxno: 销方税号（可选，需同时指定 buyer_taxno）
+        buyer_taxno: 购方税号（可选，需同时指定 seller_taxno）
     """
     tables = get_tables()
     sql = f"""
@@ -217,8 +221,14 @@ def load_negative_items(conn, limit: Optional[int] = None) -> List[NegativeItem]
         JOIN {tables.original_bill_item} i ON b.fid = i.fid
         WHERE b.fbillproperties = '-1'
           AND b.fconfirmstate = '0'
-        ORDER BY b.fid, i.fentryid
     """
+
+    # 添加税号过滤条件（仅当同时指定时才生效）
+    if seller_taxno and buyer_taxno:
+        sql += f"      AND b.fsalertaxno = '{seller_taxno}'\n"
+        sql += f"      AND b.fbuyertaxno = '{buyer_taxno}'\n"
+
+    sql += "    ORDER BY b.fid, i.fentryid\n"
 
     if limit is not None:
         sql += f" LIMIT {limit}"
@@ -240,6 +250,10 @@ def load_negative_items(conn, limit: Optional[int] = None) -> List[NegativeItem]
                 fsalertaxno=row[9],
                 fbuyertaxno=row[10]
             ))
+
+    # 日志输出
+    if seller_taxno and buyer_taxno:
+        log(f"过滤条件: 销方税号={seller_taxno}, 购方税号={buyer_taxno}")
 
     if limit is not None:
         log(f"加载了 {len(items)} 条待处理负数单据明细（测试模式: LIMIT {limit}）")
@@ -801,7 +815,9 @@ def generate_invoice_summaries(match_results: List[MatchResult],
 
 
 def run_matching_algorithm(conn, test_limit: Optional[int] = None,
-                           strategy_name: str = None) -> MatchingReport:
+                           strategy_name: str = None,
+                           seller_taxno: Optional[str] = None,
+                           buyer_taxno: Optional[str] = None) -> MatchingReport:
     """
     运行匹蓝算法主流程
 
@@ -809,6 +825,8 @@ def run_matching_algorithm(conn, test_limit: Optional[int] = None,
         conn: 数据库连接
         test_limit: 测试模式下限制处理的负数单据数量
         strategy_name: 匹配策略名称，为 None 时使用默认策略
+        seller_taxno: 销方税号（可选，需同时指定 buyer_taxno）
+        buyer_taxno: 购方税号（可选，需同时指定 seller_taxno）
 
     Returns:
         完整的匹配报告（包含匹配结果、SKU统计、失败记录）
@@ -831,7 +849,9 @@ def run_matching_algorithm(conn, test_limit: Optional[int] = None,
 
     # 1. 加载负数单据
     perf.start("加载负数单据")
-    negative_items = load_negative_items(conn, limit=test_limit)
+    negative_items = load_negative_items(conn, limit=test_limit,
+                                         seller_taxno=seller_taxno,
+                                         buyer_taxno=buyer_taxno)
     perf.stop("加载负数单据")
     if not negative_items:
         print("没有待处理的负数单据")
@@ -1190,6 +1210,22 @@ def parse_arguments():
         help=f'匹配算法（可选: {", ".join(available_strategies)}，默认: greedy_large）'
     )
 
+    parser.add_argument(
+        '--seller',
+        type=str,
+        default=None,
+        metavar='TAXNO',
+        help='销方税号（需同时指定 --buyer，用于临时测试）'
+    )
+
+    parser.add_argument(
+        '--buyer',
+        type=str,
+        default=None,
+        metavar='TAXNO',
+        help='购方税号（需同时指定 --seller，用于临时测试）'
+    )
+
     return parser.parse_args()
 
 
@@ -1207,6 +1243,16 @@ def main():
         sys.exit(1)
 
     args = parse_arguments()
+
+    # 验证税号参数（必须同时指定）
+    seller_taxno = None
+    buyer_taxno = None
+    if args.seller and args.buyer:
+        seller_taxno = args.seller
+        buyer_taxno = args.buyer
+        log(f"启用税号过滤: 销方={seller_taxno}, 购方={buyer_taxno}")
+    elif args.seller or args.buyer:
+        log("⚠️  警告: --seller 和 --buyer 必须同时指定才生效，已忽略过滤条件")
 
     # 获取策略以获取规范化的算法名称
     strategy = get_strategy(args.algorithm)
@@ -1226,7 +1272,9 @@ def main():
 
         # 执行匹配算法（注意：test_limit模式下不会更新数据库）
         report = run_matching_algorithm(conn, test_limit=args.test_limit,
-                                        strategy_name=args.algorithm)
+                                        strategy_name=args.algorithm,
+                                        seller_taxno=seller_taxno,
+                                        buyer_taxno=buyer_taxno)
 
         if report.match_results:
             # 执行聚合
