@@ -79,5 +79,21 @@ class MatchingStrategy(ABC):
         """
         return negatives
 
+    def set_blue_pool(
+        self,
+        blue_pool: Dict[Tuple[str, str], List['BlueInvoiceItem']]
+    ) -> None:
+        """
+        设置蓝票池上下文（可选）
+
+        在批量匹配开始前调用，允许策略访问完整的蓝票池信息。
+        子类可覆盖此方法进行预计算，如统计候选数量等。
+        默认实现：不做任何操作。
+
+        Args:
+            blue_pool: 蓝票池 {(spbm, taxrate): [BlueInvoiceItem]}
+        """
+        pass
+
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(name='{self.name}')"

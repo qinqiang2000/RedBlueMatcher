@@ -566,11 +566,14 @@ def match_group_worker(args: Tuple) -> Tuple[List[dict], int, int, List[dict]]:
     neg_items = [NegativeItem(**d) for d in neg_items_data]
     blue_candidates = [BlueInvoiceItem(**d) for d in blue_candidates_data]
 
-    # 预处理负数单据（策略可覆盖，如排序）
-    neg_items = strategy.pre_process_negatives(neg_items)
-
     # 构建本地蓝票池（该组独占，无需同步）
     temp_pool = {(spbm, taxrate): blue_candidates}
+
+    # 设置蓝票池上下文（允许策略预计算统计信息）
+    strategy.set_blue_pool(temp_pool)
+
+    # 预处理负数单据（策略可覆盖，如排序）
+    neg_items = strategy.pre_process_negatives(neg_items)
 
     local_results = []
     failed_items = []  # 记录失败的负数单据

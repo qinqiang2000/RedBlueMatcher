@@ -12,3 +12,5 @@ python-calamine==0.6.1
 
 # 配置管理
 python-dotenv==1.0.0
+
+maturin

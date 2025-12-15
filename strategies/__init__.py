@@ -18,11 +18,13 @@
 from .base import MatchingStrategy
 from .greedy_large import GreedyLargeStrategy
 from .ffd import FFDStrategy
+from .invoice_reuse import InvoiceReuseStrategy
 
 # 策略注册表
 STRATEGIES = {
     'greedy_large': GreedyLargeStrategy,
     'ffd': FFDStrategy,
+    'invoice_reuse': InvoiceReuseStrategy,
 }
 
 # 默认策略
@@ -87,6 +89,7 @@ __all__ = [
     'MatchingStrategy',
     'GreedyLargeStrategy',
     'FFDStrategy',
+    'InvoiceReuseStrategy',
     'get_strategy',
     'list_strategies',
     'register_strategy',
