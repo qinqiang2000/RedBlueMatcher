@@ -32,6 +32,35 @@ from config import load_config, get_db_config, get_tables
 from strategies import get_strategy, list_strategies
 from strategies.greedy_large import validate_tail_diff
 
+# Rust 引擎标志（默认关闭，需要 --rust 参数显式启用）
+USE_RUST_ENGINE = False
+_RUST_AVAILABLE = False
+
+# 尝试导入 Rust 适配层（仅检测可用性，不自动启用）
+try:
+    from rust_adapter import (
+        is_rust_available,
+        get_rust_version,
+        match_groups_parallel_rust,
+        dict_to_match_result,
+        negative_item_to_dict as rust_negative_to_dict,
+        blue_item_to_dict as rust_blue_to_dict
+    )
+    _RUST_AVAILABLE = is_rust_available()
+except ImportError:
+    _RUST_AVAILABLE = False
+    def get_rust_version():
+        return "不可用"
+
+
+def enable_rust_engine():
+    """启用 Rust 引擎（由命令行参数触发）"""
+    global USE_RUST_ENGINE
+    if _RUST_AVAILABLE:
+        USE_RUST_ENGINE = True
+        return True
+    return False
+
 
 def log(msg: str):
     """带时间戳的日志输出"""
@@ -957,45 +986,63 @@ def run_matching_algorithm(conn, test_limit: Optional[int] = None,
     perf.stop("批量加载蓝票")
     log(f"蓝票池加载完成: {batch_count} 批次, {total_rows} 行蓝票数据, {len(blue_pool)} 组")
 
-    # 4. 多进程并发执行匹配
+    # 4. 并发执行匹配
     results: List[MatchResult] = []
     matched_count = 0
     failed_count = 0
     failed_records = []  # 收集失败的负数单据
 
-    # 准备多进程任务参数（需要序列化为dict）
-    perf.start("准备匹配任务")
-    match_tasks = []
-    for group_key, neg_items in groups.items():
-        blue_candidates = blue_pool.get(group_key, [])
-        # 序列化为 dict 列表，便于跨进程传输
-        neg_items_data = [negative_item_to_dict(n) for n in neg_items]
-        blue_candidates_data = [blue_item_to_dict(b) for b in blue_candidates]
-        # 将策略名称传递给 worker
-        match_tasks.append((group_key, neg_items_data, blue_candidates_data, strategy_name))
-    perf.stop("准备匹配任务")
+    # 检查是否使用 Rust 引擎
+    if USE_RUST_ENGINE:
+        # ========== Rust 引擎路径 ==========
+        log(f"使用 Rust 引擎并行匹配 {len(groups)} 组...")
+        perf.start("Rust并行匹配")
 
-    log(f"开始多进程匹配 {len(match_tasks)} 组...")
+        # 直接调用 Rust 并行处理（无需手动序列化，Rust 适配层处理）
+        results_data, matched_count, failed_count, failed_records = match_groups_parallel_rust(
+            groups, blue_pool, strategy_name, skip_validation=True
+        )
 
-    # 使用多进程池并发匹配（绕过GIL，真正并行）
-    perf.start("多进程匹配")
-    num_workers = max(1, min(cpu_count() - 1, len(match_tasks)))
-    with Pool(processes=num_workers) as pool:
-        results_list = pool.map(match_group_worker, match_tasks)
-
-    # 合并结果
-    for results_data, local_matched, local_failed, failed_items_data in results_list:
         # 将 dict 转换回 MatchResult 对象
         for rd in results_data:
-            results.append(MatchResult(**rd))
-        matched_count += local_matched
-        failed_count += local_failed
-        # 收集失败记录
-        for item in failed_items_data:
-            failed_records.append(item)
-    perf.stop("多进程匹配")
+            results.append(dict_to_match_result(rd))
 
-    log(f"  Phase 1 匹配完成: {len(match_tasks)} 组, {len(results)} 条记录")
+        perf.stop("Rust并行匹配")
+    else:
+        # ========== Python 多进程路径（回退） ==========
+        # 准备多进程任务参数（需要序列化为dict）
+        perf.start("准备匹配任务")
+        match_tasks = []
+        for group_key, neg_items in groups.items():
+            blue_candidates = blue_pool.get(group_key, [])
+            # 序列化为 dict 列表，便于跨进程传输
+            neg_items_data = [negative_item_to_dict(n) for n in neg_items]
+            blue_candidates_data = [blue_item_to_dict(b) for b in blue_candidates]
+            # 将策略名称传递给 worker
+            match_tasks.append((group_key, neg_items_data, blue_candidates_data, strategy_name))
+        perf.stop("准备匹配任务")
+
+        log(f"开始多进程匹配 {len(match_tasks)} 组...")
+
+        # 使用多进程池并发匹配（绕过GIL，真正并行）
+        perf.start("多进程匹配")
+        num_workers = max(1, min(cpu_count() - 1, len(match_tasks)))
+        with Pool(processes=num_workers) as pool:
+            results_list = pool.map(match_group_worker, match_tasks)
+
+        # 合并结果
+        for results_data, local_matched, local_failed, failed_items_data in results_list:
+            # 将 dict 转换回 MatchResult 对象
+            for rd in results_data:
+                results.append(MatchResult(**rd))
+            matched_count += local_matched
+            failed_count += local_failed
+            # 收集失败记录
+            for item in failed_items_data:
+                failed_records.append(item)
+        perf.stop("多进程匹配")
+
+    log(f"  Phase 1 匹配完成: {len(groups)} 组, {len(results)} 条记录")
 
     # 5. Phase 2: 批量校验（两阶段校验优化）
     perf.start("Phase 2 批量校验")
@@ -1031,9 +1078,9 @@ def run_matching_algorithm(conn, test_limit: Optional[int] = None,
             sku_code=neg_data['fspbm'],
             goods_name=neg_data['fgoodsname'],
             tax_rate=neg_data['ftaxrate'],
-            amount=neg_data['famount'],
-            quantity=neg_data['fnum'],
-            tax=neg_data['ftax'],
+            amount=Decimal(str(neg_data['famount'])),
+            quantity=Decimal(str(neg_data['fnum'])),
+            tax=Decimal(str(neg_data['ftax'])),
             failed_reason=item['reason']
         ))
     perf.stop("生成失败匹配列表")
@@ -1169,17 +1216,20 @@ def parse_arguments():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=f"""
 示例用法:
-  # 全量运行（使用默认算法）
+  # 全量运行（使用默认 Python 实现）
   python red_blue_matcher.py
 
   # 测试模式：仅处理前10条负数单据
   python red_blue_matcher.py --test-limit 10
 
   # 指定匹配算法
-  python red_blue_matcher.py --algorithm greedy_large
+  python red_blue_matcher.py --algorithm ffd
 
-  # 测试模式并指定输出文件和算法
-  python red_blue_matcher.py --test-limit 100 --algorithm greedy_large --output test_results.xlsx
+  # 使用 Rust 高性能引擎（实验性）
+  python red_blue_matcher.py --rust
+
+  # 测试模式 + Rust 引擎 + 指定算法
+  python red_blue_matcher.py --test-limit 100 --rust --algorithm ffd
 
 可用算法: {', '.join(available_strategies)}
         """
@@ -1226,6 +1276,13 @@ def parse_arguments():
         help='购方税号（需同时指定 --seller，用于临时测试）'
     )
 
+    parser.add_argument(
+        '--rust',
+        action='store_true',
+        default=False,
+        help='启用 Rust 高性能引擎（实验性功能，默认使用 Python 实现）'
+    )
+
     return parser.parse_args()
 
 
@@ -1243,6 +1300,14 @@ def main():
         sys.exit(1)
 
     args = parse_arguments()
+
+    # 处理 --rust 参数
+    if args.rust:
+        if enable_rust_engine():
+            log(f"✓ Rust 高性能引擎已启用 (版本: {get_rust_version()})")
+        else:
+            log("⚠️  Rust 引擎不可用，回退到 Python 实现")
+            log("   提示: 请确保已安装 rust_matcher 扩展 (cd rust_matcher && maturin develop --release)")
 
     # 验证税号参数（必须同时指定）
     seller_taxno = None

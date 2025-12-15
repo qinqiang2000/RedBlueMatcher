@@ -1,7 +1,13 @@
-output/
+# output/
 .DS_Store
-logs
+# logs
 __pycache__/
+
+# 虚拟环境
+venv/
+env/
+ENV/
+.venv/
 
 # 环境配置文件（敏感信息）
 .env

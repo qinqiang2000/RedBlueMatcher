@@ -12,3 +12,6 @@ python-calamine==0.6.1
 
 # 配置管理
 python-dotenv==1.0.0
+
+# Rust 扩展构建工具（开发时需要）
+maturin>=1.4

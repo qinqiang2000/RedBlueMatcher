@@ -12,7 +12,7 @@ from collections import defaultdict
 from datetime import datetime
 import sys
 from pathlib import Path
-from openpyxl import load_workbook
+from python_calamine import CalamineWorkbook
 from config import load_config, get_db_config, get_tables, get_full_row_threshold
 
 # 容差
@@ -26,27 +26,24 @@ def log(msg: str):
 
 
 def load_csv_results(csv_path: str) -> list:
-    """加载Excel匹配结果"""
-    # 读取 Excel 文件
-    wb = load_workbook(csv_path, read_only=True, data_only=True)
-    # 假设数据在第一个工作表
-    ws = wb.active
-
-    # 获取表头
-    headers = [cell.value for cell in next(ws.iter_rows(min_row=1, max_row=1))]
-
-    # 读取数据行
+    """加载Excel匹配结果（使用calamine高性能引擎）"""
+    wb = CalamineWorkbook.from_path(csv_path)
+    # 获取第一个工作表
+    sheet_name = wb.sheet_names[0]
+    rows = wb.get_sheet_by_name(sheet_name).to_python()
+    
+    # 第一行是表头
+    headers = rows[0]
+    
+    # 转换为字典列表
     results = []
-    for row in ws.iter_rows(min_row=2, values_only=True):
-        # 将行数据转换为字典
+    for row in rows[1:]:
         row_dict = {}
         for i, value in enumerate(row):
             if i < len(headers) and headers[i]:
-                # 将所有值转换为字符串以保持与CSV读取的一致性
                 row_dict[headers[i]] = str(value) if value is not None else ''
         results.append(row_dict)
-
-    wb.close()
+    
     return results
 
 

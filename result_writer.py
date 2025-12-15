@@ -210,8 +210,15 @@ class ResultWriter:
         Returns:
             输出行数据列表
         """
-        # 格式化开票日期
-        issue_date = inv.blue_issue_date.strftime('%Y-%m-%d') if inv.blue_issue_date else ''
+        # 格式化开票日期（兼容 datetime 和 str 类型）
+        if inv.blue_issue_date:
+            if hasattr(inv.blue_issue_date, 'strftime'):
+                issue_date = inv.blue_issue_date.strftime('%Y-%m-%d')
+            else:
+                # 已经是字符串，直接使用（取前10个字符作为日期部分）
+                issue_date = str(inv.blue_issue_date)[:10]
+        else:
+            issue_date = ''
 
         return [
             inv.seq,                                      # 序号
