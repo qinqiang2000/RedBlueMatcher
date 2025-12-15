@@ -17,7 +17,6 @@ mkdir -p logs
 # 解析命令行参数
 PYTHON_ARGS=""
 ALGO_LABEL=""
-USE_RUST=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -42,22 +41,16 @@ while [[ $# -gt 0 ]]; do
             PYTHON_ARGS="$PYTHON_ARGS --buyer $2"
             shift 2
             ;;
-        --rust)
-            PYTHON_ARGS="$PYTHON_ARGS --rust"
-            USE_RUST="_rust"
-            shift
-            ;;
         *)
             echo "未知参数: $1"
-            echo "用法: $0 [--algorithm ALGO] [--test-limit NUM] [--output FILE] [--seller TAXNO] [--buyer TAXNO] [--rust]"
+            echo "用法: $0 [--algorithm ALGO] [--test-limit NUM] [--output FILE] [--seller TAXNO] [--buyer TAXNO]"
             echo "示例: $0 --algorithm ffd --seller 91341103MA2TWC9B1Q --buyer 9134110275298062X0"
-            echo "示例: $0 --rust --algorithm ffd  # 使用 Rust 高性能引擎"
             exit 1
             ;;
     esac
 done
 
-LOG_FILE="logs/full_run${ALGO_LABEL}${USE_RUST}_$(date +%Y%m%d_%H%M%S).log"
+LOG_FILE="logs/full_run${ALGO_LABEL}_$(date +%Y%m%d_%H%M%S).log"
 
 # 使用 -u 标志运行Python，禁用输出缓冲
 # 这样可以看到实时日志

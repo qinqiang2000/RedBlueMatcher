@@ -7,11 +7,8 @@ numpy==1.26.4
 # Excel 导出（高性能）
 xlsxwriter==3.2.0
 
-# Excel 读取（超高性能 - 基于Rust）
+# Excel 读取（高性能）
 python-calamine==0.6.1
 
 # 配置管理
 python-dotenv==1.0.0
-
-# Rust 扩展构建工具（开发时需要）
-maturin>=1.4

@@ -65,6 +65,46 @@ class TableConfig:
         return f"t_sim_vatinvoice_item{self.suffix}"
 
 
+class TableConfigWithNames:
+    """表名配置类 - 直接使用完整表名"""
+
+    def __init__(self, original_bill: str, original_bill_item: str,
+                 vatinvoice: str, vatinvoice_item: str):
+        """
+        初始化完整表名配置
+
+        Args:
+            original_bill: 负数单据主表完整表名
+            original_bill_item: 负数单据明细表完整表名
+            vatinvoice: 蓝票主表完整表名
+            vatinvoice_item: 蓝票明细表完整表名
+        """
+        self._original_bill = original_bill
+        self._original_bill_item = original_bill_item
+        self._vatinvoice = vatinvoice
+        self._vatinvoice_item = vatinvoice_item
+
+    @property
+    def original_bill(self) -> str:
+        """负数单据主表"""
+        return self._original_bill
+
+    @property
+    def original_bill_item(self) -> str:
+        """负数单据明细表"""
+        return self._original_bill_item
+
+    @property
+    def vatinvoice(self) -> str:
+        """蓝票主表"""
+        return self._vatinvoice
+
+    @property
+    def vatinvoice_item(self) -> str:
+        """蓝票明细表"""
+        return self._vatinvoice_item
+
+
 # 模块级别的配置单例
 _db_config: Optional[DatabaseConfig] = None
 _table_config: Optional[TableConfig] = None
@@ -153,8 +193,41 @@ def load_config(env: Optional[str] = None) -> None:
     except ValueError as e:
         raise ValueError(f"DB_PORT 格式错误: {e}")
 
-    # 读取表名后缀（可选字段）
-    table_suffix = os.getenv('TABLE_SUFFIX', '')
+    # 读取完整表名配置（优先级高于表名后缀）
+    table_original_bill = os.getenv('TABLE_ORIGINAL_BILL')
+    table_original_bill_item = os.getenv('TABLE_ORIGINAL_BILL_ITEM')
+    table_vatinvoice = os.getenv('TABLE_VATINVOICE')
+    table_vatinvoice_item = os.getenv('TABLE_VATINVOICE_ITEM')
+
+    # 如果配置了完整表名，则直接使用
+    if table_original_bill or table_original_bill_item or table_vatinvoice or table_vatinvoice_item:
+        # 验证完整性：如果配置了一个，就需要配置所有
+        missing_tables = []
+        if not table_original_bill:
+            missing_tables.append('TABLE_ORIGINAL_BILL')
+        if not table_original_bill_item:
+            missing_tables.append('TABLE_ORIGINAL_BILL_ITEM')
+        if not table_vatinvoice:
+            missing_tables.append('TABLE_VATINVOICE')
+        if not table_vatinvoice_item:
+            missing_tables.append('TABLE_VATINVOICE_ITEM')
+
+        if missing_tables:
+            raise ValueError(
+                f"检测到部分完整表名配置，缺少以下表名: {', '.join(missing_tables)}\n"
+                f"请配置所有四个表名或不使用完整表名配置。"
+            )
+
+        _table_config = TableConfigWithNames(
+            original_bill=table_original_bill,
+            original_bill_item=table_original_bill_item,
+            vatinvoice=table_vatinvoice,
+            vatinvoice_item=table_vatinvoice_item
+        )
+    else:
+        # 读取表名后缀（可选字段）
+        table_suffix = os.getenv('TABLE_SUFFIX', '')
+        _table_config = TableConfig(suffix=table_suffix)
 
     # 读取整行红冲阈值（可选字段，默认0.1）
     try:
@@ -175,12 +248,19 @@ def load_config(env: Optional[str] = None) -> None:
         password=db_password
     )
 
-    _table_config = TableConfig(suffix=table_suffix)
     _config_loaded = True
 
     print(f"配置加载成功:")
     print(f"  数据库: {db_name}@{db_host}:{db_port_int}")
-    print(f"  表后缀: '{table_suffix}'" if table_suffix else "  表后缀: (无)")
+
+    if isinstance(_table_config, TableConfigWithNames):
+        print(f"  表名配置: 使用完整表名")
+        print(f"    负数单据主表: {_table_config.original_bill}")
+        print(f"    负数单据明细表: {_table_config.original_bill_item}")
+        print(f"    蓝票主表: {_table_config.vatinvoice}")
+        print(f"    蓝票明细表: {_table_config.vatinvoice_item}")
+    else:
+        print(f"  表后缀: '{table_suffix}'" if table_suffix else "  表后缀: (无)")
     print(f"  整行红冲阈值: {_full_row_threshold} 元")
 
 
@@ -268,11 +348,19 @@ def print_config() -> None:
 
     if _table_config:
         print(f"\n表名配置:")
-        print(f"  后缀: '{_table_config.suffix}'" if _table_config.suffix else "  后缀: (无)")
-        print(f"  负数单据主表: {_table_config.original_bill}")
-        print(f"  负数单据明细表: {_table_config.original_bill_item}")
-        print(f"  蓝票主表: {_table_config.vatinvoice}")
-        print(f"  蓝票明细表: {_table_config.vatinvoice_item}")
+        if isinstance(_table_config, TableConfigWithNames):
+            print(f"  配置方式: 完整表名")
+            print(f"  负数单据主表: {_table_config.original_bill}")
+            print(f"  负数单据明细表: {_table_config.original_bill_item}")
+            print(f"  蓝票主表: {_table_config.vatinvoice}")
+            print(f"  蓝票明细表: {_table_config.vatinvoice_item}")
+        else:
+            print(f"  配置方式: 表名后缀")
+            print(f"  后缀: '{_table_config.suffix}'" if _table_config.suffix else "  后缀: (无)")
+            print(f"  负数单据主表: {_table_config.original_bill}")
+            print(f"  负数单据明细表: {_table_config.original_bill_item}")
+            print(f"  蓝票主表: {_table_config.vatinvoice}")
+            print(f"  蓝票明细表: {_table_config.vatinvoice_item}")
 
     print("=" * 60)
 
