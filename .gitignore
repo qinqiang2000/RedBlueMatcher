@@ -3,6 +3,15 @@ output/
 .vscode/
 # logs
 __pycache__/
+*.log
+
+# Rust
+target/
+Cargo.lock
+
+# experiment directory (temp files)
+experiment/
+logs/
 
 # 虚拟环境
 venv/
