@@ -41,10 +41,14 @@ while [[ $# -gt 0 ]]; do
             PYTHON_ARGS="$PYTHON_ARGS --buyer $2"
             shift 2
             ;;
+        --mode)
+            PYTHON_ARGS="$PYTHON_ARGS --mode $2"
+            shift 2
+            ;;
         *)
             echo "未知参数: $1"
-            echo "用法: $0 [--algorithm ALGO] [--test-limit NUM] [--output FILE] [--seller TAXNO] [--buyer TAXNO]"
-            echo "示例: $0 --algorithm ffd --seller 91341103MA2TWC9B1Q --buyer 9134110275298062X0"
+            echo "用法: $0 [--algorithm ALGO] [--test-limit NUM] [--output FILE] [--seller TAXNO] [--buyer TAXNO] [--mode MODE]"
+            echo "示例: $0 --algorithm invoice_reuse --seller 91341103MA2TWC9B1Q --buyer 9134110275298062X0 --mode on_demand"
             exit 1
             ;;
     esac

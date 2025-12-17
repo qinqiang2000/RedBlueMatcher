@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.kingdee.taxc.mapper.VatInvoice1201Mapper">
+  <resultMap id="VatInvoice1201Map" type="com.kingdee.taxc.entity.VatInvoice1201">
+    <id property="fid" column="fid" />
+    <result property="fcreatetime" column="fcreatetime" />
+    <result property="fmodifytime" column="fmodifytime" />
+    <result property="fmodifierid" column="fmodifierid" />
+    <result property="finvoicecode" column="finvoicecode" />
+    <result property="finvoiceno" column="finvoiceno" />
+    <result property="fcheckcode" column="fcheckcode" />
+    <result property="fissuetime" column="fissuetime" />
+    <result property="finvoicetype" column="finvoicetype" />
+    <result property="fbuyertype" column="fbuyertype" />
+    <result property="finvoicestatus" column="finvoicestatus" />
+    <result property="finventorymark" column="finventorymark" />
+    <result property="foriginalinvoicecode" column="foriginalinvoicecode" />
+    <result property="foriginalinvoiceno" column="foriginalinvoiceno" />
+    <result property="foriginalissuetime" column="foriginalissuetime" />
+    <result property="foriginalinvoicetype" column="foriginalinvoicetype" />
+    <result property="fordeno" column="forderno" />
+    <result property="fbuyername" column="fbuyername" />
+    <result property="fbuyertaxno" column="fbuyertaxno" />
+    <result property="fbuyeraddr" column="fbuyeraddr" />
+    <result property="fbuyertelno" column="fbuyertelno" />
+    <result property="fbuyerbank" column="fbuyerbank" />
+    <result property="fbuyerbankacc" column="fbuyerbankacc" />
+    <result property="ftotalamount" column="ftotalamount" />
+    <result property="finvoiceamount" column="finvoiceamount" />
+    <result property="ftotaltax" column="ftotaltax" />
+    <result property="fsaleraddr" column="fsaleraddr" />
+    <result property="fsalertelno" column="fsalertelno" />
+    <result property="fsalerbank" column="fsalerbank" />
+    <result property="fsalerbankacc" column="fsalerbankacc" />
+    <result property="fpayee" column="fpayee" />
+    <result property="freviewer" column="freviewer" />
+    <result property="fdrawer" column="fdrawer" />
+    <result property="fspecialtype" column="fspecialtype" />
+    <result property="fsalername" column="fsalername" />
+    <result property="fsalertaxno" column="fsalertaxno" />
+    <result property="fremark" column="fremark" />
+    <result property="fdeduction" column="fdeduction" />
+    <result property="fbuyeremail" column="fbuyeremail" />
+    <result property="fbuyerphone" column="fbuyerphone" />
+    <result property="fhsbz" column="fhsbz" />
+    <result property="ftaxedtype" column="ftaxedtype" />
+    <result property="fissuetype" column="fissuetype" />
+    <result property="fbillno" column="fbillno" />
+    <result property="fsystemsource" column="fsystemsource" />
+    <result property="fsourcetype" column="fsourcetype" />
+    <result property="finvoicecopy" column="finvoicecopy" />
+    <result property="fmaintaxorg" column="fmaintaxorg" />
+    <result property="fbaseinvoicetype" column="fbaseinvoicetype" />
+    <result property="fapplytaxno" column="fapplytaxno" />
+    <result property="fapplicant" column="fapplicant" />
+    <result property="foriginaldeduction" column="foriginaldeduction" />
+    <result property="fsplitorder" column="fsplitorder" />
+    <result property="fissuewritebackstatus" column="fissuewritebackstatus" />
+    <result property="fabolishwritebackstatus" column="fabolishwritebackstatus" />
+    <result property="fissuewritebackreason" column="fissuewritebackreason" />
+    <result property="fgovuuid" column="fgovuuid" />
+    <result property="fiselepaper" column="fiselepaper" />
+    <result property="falletaxinvoiceno" column="falletaxinvoiceno" />
+    <result property="foriginaletaxinvoiceno" column="foriginaletaxinvoiceno" />
+    <result property="faccount" column="faccount" />
+    <result property="forgid" column="forgid" />
+    <result property="fshowsalerbank" column="fshowsalerbank" />
+    <result property="fshowbuyerbank" column="fshowbuyerbank" />
+    <result property="finvoicingoperator" column="finvoicingoperator" />
+    <result property="flqversion" column="flqversion" />
+    <result property="fcobuyerflag" column="fcobuyerflag" />
+    <result property="fvalueaddedtaxuses" column="fvalueaddedtaxuses" />
+    <result property="fcreditingstatus" column="fcreditingstatus" />
+    <result property="fexcisetaxpurposes" column="fexcisetaxpurposes" />
+    <result property="fshowsaleraddrtel" column="fshowsaleraddrtel" />
+    <result property="fshowbuyeraddrtel" column="fshowbuyeraddrtel" />
+    <result property="fapplypolicy" column="fapplypolicy" />
+  </resultMap>
+
+  <select id="selectById" resultMap="VatInvoice1201Map">
+    select * from t_sim_vatinvoice_1201 where fid = #{fid}
+  </select>
+</mapper>

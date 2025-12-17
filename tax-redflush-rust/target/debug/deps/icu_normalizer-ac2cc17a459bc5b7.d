@@ -1,0 +1,10 @@
+/Users/qinqiang02/colab/codespace/python/RedBlueMatcher/tax-redflush-rust/target/debug/deps/icu_normalizer-ac2cc17a459bc5b7.d: /Users/qinqiang02/.cargo/registry/src/mirrors.ustc.edu.cn-38d0e5eb5da2abae/icu_normalizer-2.1.1/src/lib.rs /Users/qinqiang02/.cargo/registry/src/mirrors.ustc.edu.cn-38d0e5eb5da2abae/icu_normalizer-2.1.1/src/properties.rs /Users/qinqiang02/.cargo/registry/src/mirrors.ustc.edu.cn-38d0e5eb5da2abae/icu_normalizer-2.1.1/src/provider.rs /Users/qinqiang02/.cargo/registry/src/mirrors.ustc.edu.cn-38d0e5eb5da2abae/icu_normalizer-2.1.1/src/uts46.rs
+
+/Users/qinqiang02/colab/codespace/python/RedBlueMatcher/tax-redflush-rust/target/debug/deps/libicu_normalizer-ac2cc17a459bc5b7.rlib: /Users/qinqiang02/.cargo/registry/src/mirrors.ustc.edu.cn-38d0e5eb5da2abae/icu_normalizer-2.1.1/src/lib.rs /Users/qinqiang02/.cargo/registry/src/mirrors.ustc.edu.cn-38d0e5eb5da2abae/icu_normalizer-2.1.1/src/properties.rs /Users/qinqiang02/.cargo/registry/src/mirrors.ustc.edu.cn-38d0e5eb5da2abae/icu_normalizer-2.1.1/src/provider.rs /Users/qinqiang02/.cargo/registry/src/mirrors.ustc.edu.cn-38d0e5eb5da2abae/icu_normalizer-2.1.1/src/uts46.rs
+
+/Users/qinqiang02/colab/codespace/python/RedBlueMatcher/tax-redflush-rust/target/debug/deps/libicu_normalizer-ac2cc17a459bc5b7.rmeta: /Users/qinqiang02/.cargo/registry/src/mirrors.ustc.edu.cn-38d0e5eb5da2abae/icu_normalizer-2.1.1/src/lib.rs /Users/qinqiang02/.cargo/registry/src/mirrors.ustc.edu.cn-38d0e5eb5da2abae/icu_normalizer-2.1.1/src/properties.rs /Users/qinqiang02/.cargo/registry/src/mirrors.ustc.edu.cn-38d0e5eb5da2abae/icu_normalizer-2.1.1/src/provider.rs /Users/qinqiang02/.cargo/registry/src/mirrors.ustc.edu.cn-38d0e5eb5da2abae/icu_normalizer-2.1.1/src/uts46.rs
+
+/Users/qinqiang02/.cargo/registry/src/mirrors.ustc.edu.cn-38d0e5eb5da2abae/icu_normalizer-2.1.1/src/lib.rs:
+/Users/qinqiang02/.cargo/registry/src/mirrors.ustc.edu.cn-38d0e5eb5da2abae/icu_normalizer-2.1.1/src/properties.rs:
+/Users/qinqiang02/.cargo/registry/src/mirrors.ustc.edu.cn-38d0e5eb5da2abae/icu_normalizer-2.1.1/src/provider.rs:
+/Users/qinqiang02/.cargo/registry/src/mirrors.ustc.edu.cn-38d0e5eb5da2abae/icu_normalizer-2.1.1/src/uts46.rs:

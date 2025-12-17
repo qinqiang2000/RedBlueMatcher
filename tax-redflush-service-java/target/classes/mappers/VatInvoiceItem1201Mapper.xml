@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.kingdee.taxc.mapper.VatInvoiceItem1201Mapper">
+  <resultMap id="VatInvoiceItem1201Map" type="com.kingdee.taxc.entity.VatInvoiceItem1201">
+    <id property="fentryid" column="fentryid" />
+    <result property="fid" column="fid" />
+    <result property="fseq" column="fseq" />
+    <result property="fspmc" column="fspmc" />
+    <result property="fgoodscode" column="fgoodscode" />
+    <result property="fspecification" column="fspecification" />
+    <result property="funit" column="funit" />
+    <result property="fnum" column="fnum" />
+    <result property="funitprice" column="funitprice" />
+    <result property="famount" column="famount" />
+    <result property="ftax" column="ftax" />
+    <result property="fzerotaxmark" column="fzerotaxmark" />
+    <result property="ftaxpremark" column="ftaxpremark" />
+    <result property="fzzstsgl" column="fzzstsgl" />
+    <result property="fzxbm" column="fzxbm" />
+    <result property="ftaxflag" column="ftaxflag" />
+    <result property="fsimplegoodsname" column="fsimplegoodsname" />
+    <result property="fuserinputgoodsname" column="fuserinputgoodsname" />
+    <result property="fgoodsname" column="fgoodsname" />
+    <result property="ftaxrate" column="ftaxrate" />
+    <result property="frowtype" column="frowtype" />
+    <result property="ftaxunitprice" column="ftaxunitprice" />
+    <result property="ftaxamount" column="ftaxamount" />
+    <result property="fbillsourceid" column="fbillsourceid" />
+    <result property="fdiscountamount" column="fdiscountamount" />
+    <result property="fdiscountrate" column="fdiscountrate" />
+    <result property="fspbm" column="fspbm" />
+    <result property="fitemremainredamount" column="fitemremainredamount" />
+    <result property="foriginalinvoiceitemid" column="foriginalinvoiceitemid" />
+    <result property="fvehplate" column="fvehplate" />
+    <result property="fstartdate" column="fstartdate" />
+    <result property="fenddate" column="fenddate" />
+    <result property="fitemremainredtax" column="fitemremainredtax" />
+    <result property="fwriteoffqty" column="fwriteoffqty" />
+    <result property="foriginseq" column="foriginseq" />
+    <result property="fwriteoffamt" column="fwriteoffamt" />
+    <result property="fnowriteoffamt" column="fnowriteoffamt" />
+    <result property="fwriteofftax" column="fwriteofftax" />
+    <result property="fnowriteofftax" column="fnowriteofftax" />
+    <result property="fitemremainrednum" column="fitemremainrednum" />
+    <result property="fremaindiscountamount" column="fremaindiscountamount" />
+    <result property="fdiscountedamount" column="fdiscountedamount" />
+    <result property="fredprice" column="fredprice" />
+    <result property="fcoaltypecode" column="fcoaltypecode" />
+    <result property="fk_sffs_remarkcus" column="fk_sffs_remarkcus" />
+  </resultMap>
+
+  <select id="selectByEntryId" resultMap="VatInvoiceItem1201Map">
+    select * from t_sim_vatinvoice_item_1201 where fentryid = #{fentryid}
+  </select>
+</mapper>

@@ -1,0 +1,206 @@
+
+  .   ____          _            __ _ _
+ /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
+( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
+ \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
+  '  |____| .__|_| |_|_| |_\__, | / / / /
+ =========|_|==============|___/=/_/_/_/
+[32m :: Spring Boot :: [39m              [2m (v3.2.5)[0;39m
+
+2025-12-16 19:18:33 [main] INFO  c.k.t.TaxRedflushServiceApplication - Starting TaxRedflushServiceApplication v1.0.0 using Java 23.0.2 with PID 34925 (/Users/qinqiang02/colab/codespace/python/RedBlueMatcher/tax-redflush-service-java/target/tax-redflush-service-1.0.0.jar started by qinqiang02 in /Users/qinqiang02/colab/codespace/python/RedBlueMatcher/tax-redflush-service-java)
+2025-12-16 19:18:33 [main] INFO  c.k.t.TaxRedflushServiceApplication - No active profile set, falling back to 1 default profile: "default"
+2025-12-16 19:18:34 [main] INFO  o.a.catalina.core.StandardService - Starting service [Tomcat]
+2025-12-16 19:18:34 [main] INFO  o.a.catalina.core.StandardEngine - Starting Servlet engine: [Apache Tomcat/10.1.20]
+2025-12-16 19:18:34 [main] INFO  o.a.c.c.C.[Tomcat].[localhost].[/] - Initializing Spring embedded WebApplicationContext
+2025-12-16 19:18:34 [main] INFO  c.k.t.TaxRedflushServiceApplication - Started TaxRedflushServiceApplication in 1.05 seconds (process running for 1.256)
+2025-12-16 19:20:11 [http-nio-8085-exec-1] INFO  o.a.c.c.C.[Tomcat].[localhost].[/] - Initializing Spring DispatcherServlet 'dispatcherServlet'
+2025-12-16 19:20:11 [http-nio-8085-exec-1] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Starting...
+2025-12-16 19:20:11 [http-nio-8085-exec-1] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-1 - Added connection org.postgresql.jdbc.PgConnection@1e3e55b7
+2025-12-16 19:20:11 [http-nio-8085-exec-1] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Start completed.
+2025-12-16 19:20:11 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1352314 剩余未处理 4829
+2025-12-16 19:20:11 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1295943 剩余未处理 4828
+2025-12-16 19:20:12 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1334636 剩余未处理 4827
+2025-12-16 19:20:12 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1290579 剩余未处理 4826
+2025-12-16 19:20:12 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1279249 剩余未处理 4825
+2025-12-16 19:20:12 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1235498 剩余未处理 4824
+2025-12-16 19:20:12 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1334614 剩余未处理 4823
+2025-12-16 19:20:12 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1261952 剩余未处理 4822
+2025-12-16 19:20:12 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1345800 剩余未处理 4821
+2025-12-16 19:20:12 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1043806 剩余未处理 4820
+2025-12-16 19:20:12 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1018744 剩余未处理 4819
+2025-12-16 19:20:12 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1290671 剩余未处理 4818
+2025-12-16 19:20:13 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1098954 剩余未处理 4817
+2025-12-16 19:20:13 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1271285 剩余未处理 4816
+2025-12-16 19:20:13 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1301713 剩余未处理 4815
+2025-12-16 19:20:13 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1025126 剩余未处理 4814
+2025-12-16 19:20:14 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1009456 剩余未处理 4813
+2025-12-16 19:20:15 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1012704 剩余未处理 4812
+2025-12-16 19:20:15 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1020092 剩余未处理 4811
+2025-12-16 19:20:15 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1000031 剩余未处理 4810
+2025-12-16 19:20:15 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1122328 剩余未处理 4809
+2025-12-16 19:20:16 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1029883 剩余未处理 4808
+2025-12-16 19:20:17 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1296949 剩余未处理 4807
+2025-12-16 19:20:17 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1007246 剩余未处理 4806
+2025-12-16 19:20:19 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1235897 剩余未处理 4805
+2025-12-16 19:20:19 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1297377 剩余未处理 4804
+2025-12-16 19:20:20 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1016303 剩余未处理 4803
+2025-12-16 19:20:20 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1235489 剩余未处理 4802
+2025-12-16 19:20:21 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1304946 剩余未处理 4801
+2025-12-16 19:20:22 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1215661 剩余未处理 4800
+2025-12-16 19:20:23 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1030992 剩余未处理 4799
+2025-12-16 19:20:23 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1305119 剩余未处理 4798
+2025-12-16 19:20:24 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1004216 剩余未处理 4797
+2025-12-16 19:20:24 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1025567 剩余未处理 4796
+2025-12-16 19:20:25 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1297307 剩余未处理 4795
+2025-12-16 19:20:25 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1283805 剩余未处理 4794
+2025-12-16 19:20:25 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1010927 剩余未处理 4793
+2025-12-16 19:20:27 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1332805 剩余未处理 4792
+2025-12-16 19:20:27 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1296052 剩余未处理 4791
+2025-12-16 19:20:27 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1018403 剩余未处理 4790
+2025-12-16 19:20:28 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1305440 剩余未处理 4789
+2025-12-16 19:20:28 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1003908 剩余未处理 4788
+2025-12-16 19:20:30 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1010795 剩余未处理 4787
+2025-12-16 19:20:30 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1245575 剩余未处理 4786
+2025-12-16 19:20:31 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1005480 剩余未处理 4785
+2025-12-16 19:20:33 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1166872 剩余未处理 4784
+2025-12-16 19:20:33 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1006323 剩余未处理 4783
+2025-12-16 19:20:36 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1003983 剩余未处理 4782
+2025-12-16 19:20:36 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1322952 剩余未处理 4781
+2025-12-16 19:20:39 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1343658 剩余未处理 4780
+2025-12-16 19:20:39 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1074266 剩余未处理 4779
+2025-12-16 19:20:39 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1111847 剩余未处理 4778
+2025-12-16 19:20:39 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1241174 剩余未处理 4777
+2025-12-16 19:20:39 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1322287 剩余未处理 4776
+2025-12-16 19:20:39 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1008392 剩余未处理 4775
+2025-12-16 19:20:41 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1241961 剩余未处理 4774
+2025-12-16 19:20:43 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1001781 剩余未处理 4773
+2025-12-16 19:20:43 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1343557 剩余未处理 4772
+2025-12-16 19:20:43 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1011974 剩余未处理 4771
+2025-12-16 19:20:44 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1290458 剩余未处理 4770
+2025-12-16 19:20:45 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1337708 剩余未处理 4769
+2025-12-16 19:20:45 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1008594 剩余未处理 4768
+2025-12-16 19:20:46 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1016454 剩余未处理 4767
+2025-12-16 19:20:47 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1004536 剩余未处理 4766
+2025-12-16 19:20:49 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1295456 剩余未处理 4765
+2025-12-16 19:20:49 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1004504 剩余未处理 4764
+2025-12-16 19:20:50 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1267767 剩余未处理 4763
+2025-12-16 19:20:50 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1342514 剩余未处理 4762
+2025-12-16 19:20:51 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1000994 剩余未处理 4761
+2025-12-16 19:20:52 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1164503 剩余未处理 4760
+2025-12-16 19:20:54 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1115322 剩余未处理 4759
+2025-12-16 19:20:54 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1332191 剩余未处理 4758
+2025-12-16 19:20:54 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1264158 剩余未处理 4757
+2025-12-16 19:20:54 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1260049 剩余未处理 4756
+2025-12-16 19:20:56 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1029163 剩余未处理 4755
+2025-12-16 19:20:57 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1007510 剩余未处理 4754
+2025-12-16 19:20:57 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1240592 剩余未处理 4753
+2025-12-16 19:20:58 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1316634 剩余未处理 4752
+2025-12-16 19:20:59 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1295357 剩余未处理 4751
+2025-12-16 19:21:00 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1227822 剩余未处理 4750
+2025-12-16 19:21:01 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1066318 剩余未处理 4749
+2025-12-16 19:21:01 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1014420 剩余未处理 4748
+2025-12-16 19:21:02 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1117235 剩余未处理 4747
+2025-12-16 19:21:02 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1010685 剩余未处理 4746
+2025-12-16 19:21:03 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1330449 剩余未处理 4745
+2025-12-16 19:21:03 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1010347 剩余未处理 4744
+2025-12-16 19:21:03 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1333246 剩余未处理 4743
+2025-12-16 19:21:04 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1236024 剩余未处理 4742
+2025-12-16 19:21:05 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1014944 剩余未处理 4741
+2025-12-16 19:21:06 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1340715 剩余未处理 4740
+2025-12-16 19:21:06 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1014335 剩余未处理 4739
+2025-12-16 19:21:07 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1093157 剩余未处理 4738
+2025-12-16 19:21:07 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1117594 剩余未处理 4737
+2025-12-16 19:21:07 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1064744 剩余未处理 4736
+2025-12-16 19:21:08 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1310355 剩余未处理 4735
+2025-12-16 19:21:08 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1096288 剩余未处理 4734
+2025-12-16 19:21:08 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1353388 剩余未处理 4733
+2025-12-16 19:21:08 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1005229 剩余未处理 4732
+2025-12-16 19:21:09 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1069471 剩余未处理 4731
+2025-12-16 19:21:09 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1005288 剩余未处理 4730
+2025-12-16 19:21:10 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1288545 剩余未处理 4729
+2025-12-16 19:21:10 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1288525 剩余未处理 4728
+2025-12-16 19:21:10 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1130772 剩余未处理 4727
+2025-12-16 19:21:11 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1004134 剩余未处理 4726
+2025-12-16 19:21:11 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1175603 剩余未处理 4725
+2025-12-16 19:21:13 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1346646 剩余未处理 4724
+2025-12-16 19:21:13 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1333060 剩余未处理 4723
+2025-12-16 19:21:13 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1299467 剩余未处理 4722
+2025-12-16 19:21:14 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1000892 剩余未处理 4721
+2025-12-16 19:21:14 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1240219 剩余未处理 4720
+2025-12-16 19:21:14 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1311870 剩余未处理 4719
+2025-12-16 19:21:15 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1005239 剩余未处理 4718
+2025-12-16 19:21:15 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1013306 剩余未处理 4717
+2025-12-16 19:21:15 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1305451 剩余未处理 4716
+2025-12-16 19:21:15 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1004770 剩余未处理 4715
+2025-12-16 19:21:17 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1001603 剩余未处理 4714
+2025-12-16 19:21:17 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1226680 剩余未处理 4713
+2025-12-16 19:21:17 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1000612 剩余未处理 4712
+2025-12-16 19:21:17 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1029772 剩余未处理 4711
+2025-12-16 19:21:17 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1279223 剩余未处理 4710
+2025-12-16 19:21:17 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1011906 剩余未处理 4709
+2025-12-16 19:21:17 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1291586 剩余未处理 4708
+2025-12-16 19:21:18 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1224464 剩余未处理 4707
+2025-12-16 19:21:18 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1066165 剩余未处理 4706
+2025-12-16 19:21:18 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1096886 剩余未处理 4705
+2025-12-16 19:21:19 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1029782 剩余未处理 4704
+2025-12-16 19:21:19 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1013241 剩余未处理 4703
+2025-12-16 19:21:19 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1303644 剩余未处理 4702
+2025-12-16 19:21:19 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1011699 剩余未处理 4701
+2025-12-16 19:21:20 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1118408 剩余未处理 4700
+2025-12-16 19:21:20 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1029977 剩余未处理 4699
+2025-12-16 19:21:20 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1340857 剩余未处理 4698
+2025-12-16 19:21:20 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1296796 剩余未处理 4697
+2025-12-16 19:21:20 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1268508 剩余未处理 4696
+2025-12-16 19:21:20 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1290195 剩余未处理 4695
+2025-12-16 19:21:21 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1307532 剩余未处理 4694
+2025-12-16 19:21:21 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1343547 剩余未处理 4693
+2025-12-16 19:21:21 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 8600214 剩余未处理 4692
+2025-12-16 19:21:21 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1014346 剩余未处理 4691
+2025-12-16 19:21:22 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1104476 剩余未处理 4690
+2025-12-16 19:21:22 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1009423 剩余未处理 4689
+2025-12-16 19:21:23 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1011776 剩余未处理 4688
+2025-12-16 19:21:24 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1129719 剩余未处理 4687
+2025-12-16 19:21:24 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1109651 剩余未处理 4686
+2025-12-16 19:21:24 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1343773 剩余未处理 4685
+2025-12-16 19:21:25 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1222266 剩余未处理 4684
+2025-12-16 19:21:26 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1231701 剩余未处理 4683
+2025-12-16 19:21:26 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1348128 剩余未处理 4682
+2025-12-16 19:21:26 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1021132 剩余未处理 4681
+2025-12-16 19:21:27 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1301719 剩余未处理 4680
+2025-12-16 19:21:27 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1096356 剩余未处理 4679
+2025-12-16 19:21:27 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1162225 剩余未处理 4678
+2025-12-16 19:21:28 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1001019 剩余未处理 4677
+2025-12-16 19:21:28 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1299613 剩余未处理 4676
+2025-12-16 19:21:29 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1020389 剩余未处理 4675
+2025-12-16 19:21:30 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1005808 剩余未处理 4674
+2025-12-16 19:21:30 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1328417 剩余未处理 4673
+2025-12-16 19:21:31 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1347903 剩余未处理 4672
+2025-12-16 19:21:31 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1309167 剩余未处理 4671
+2025-12-16 19:21:31 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1177558 剩余未处理 4670
+2025-12-16 19:21:31 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1338540 剩余未处理 4669
+2025-12-16 19:21:31 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1005675 剩余未处理 4668
+2025-12-16 19:21:32 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1029665 剩余未处理 4667
+2025-12-16 19:21:35 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1006444 剩余未处理 4666
+2025-12-16 19:21:36 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1268511 剩余未处理 4665
+2025-12-16 19:21:37 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1241895 剩余未处理 4664
+2025-12-16 19:21:39 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1004903 剩余未处理 4663
+2025-12-16 19:21:40 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1263300 剩余未处理 4662
+2025-12-16 19:21:40 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1001243 剩余未处理 4661
+2025-12-16 19:21:40 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1319640 剩余未处理 4660
+2025-12-16 19:21:41 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1000682 剩余未处理 4659
+2025-12-16 19:21:42 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1012974 剩余未处理 4658
+2025-12-16 19:21:42 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1341328 剩余未处理 4657
+2025-12-16 19:21:43 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1018912 剩余未处理 4656
+2025-12-16 19:21:43 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1018086 剩余未处理 4655
+2025-12-16 19:21:43 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1305048 剩余未处理 4654
+2025-12-16 19:21:44 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1346460 剩余未处理 4653
+2025-12-16 19:21:45 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1001995 剩余未处理 4652
+2025-12-16 19:21:46 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1006904 剩余未处理 4651
+2025-12-16 19:21:48 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1344755 剩余未处理 4650
+2025-12-16 19:21:48 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1007346 剩余未处理 4649
+2025-12-16 19:21:48 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1300786 剩余未处理 4648
+2025-12-16 19:21:49 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1049382 剩余未处理 4647
+2025-12-16 19:21:50 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1028793 剩余未处理 4646
+2025-12-16 19:21:51 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1333339 剩余未处理 4645
+2025-12-16 19:21:51 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1287697 剩余未处理 4644
+2025-12-16 19:21:52 [http-nio-8085-exec-1] INFO  c.k.taxc.service.RedFlushService - 统计单据 2345963323922634752 商品编码 1000258 剩余未处理 4643

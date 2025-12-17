@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.kingdee.taxc.mapper.MatchTempSummary1201Mapper">
+  <insert id="insertBatch">
+    insert into t_sim_match_temp_summary_1201 (jobid, fspbm, item_count, total_amount)
+    values
+    <foreach collection="list" item="r" separator=",">
+      (#{r.jobid}, #{r.fspbm}, #{r.itemCount}, #{r.totalAmount})
+    </foreach>
+  </insert>
+
+  <delete id="clearByJob">
+    delete from t_sim_match_temp_summary_1201 where jobid = #{jobid}
+  </delete>
+
+  <select id="listByJobOrdered" resultType="com.kingdee.taxc.entity.MatchTempSummary1201">
+    select jobid, fspbm, item_count as itemCount, total_amount as totalAmount
+    from t_sim_match_temp_summary_1201
+    where jobid = #{jobid}
+    order by item_count asc, total_amount asc
+  </select>
+</mapper>

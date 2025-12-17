@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.kingdee.taxc.mapper.MatchBillItem1201Mapper">
+  <resultMap id="MatchBillItem1201Map" type="com.kingdee.taxc.entity.MatchBillItem1201">
+    <id property="fentryid" column="fentryid" />
+    <result property="fid" column="fid" />
+    <result property="fseq" column="fseq" />
+    <result property="fgoodsname" column="fgoodsname" />
+    <result property="fspbm" column="fspbm" />
+    <result property="fspecification" column="fspecification" />
+    <result property="funit" column="funit" />
+    <result property="fnum" column="fnum" />
+    <result property="ftaxrate" column="ftaxrate" />
+    <result property="funitprice" column="funitprice" />
+    <result property="famount" column="famount" />
+    <result property="ftax" column="ftax" />
+    <result property="ftaxunitprice" column="ftaxunitprice" />
+    <result property="fgoodscode" column="fgoodscode" />
+    <result property="fitemmatchstatus" column="fitemmatchstatus" />
+    <result property="fmatchtaxdeviation" column="fmatchtaxdeviation" />
+  </resultMap>
+
+  <select id="selectByEntryId" resultMap="MatchBillItem1201Map">
+    select * from t_sim_match_bill_item_1201 where fentryid = #{fentryid}
+  </select>
+
+  <select id="listProductCodesByBillId" resultType="string">
+    select distinct fspbm from t_sim_match_bill_item_1201 where fid = #{fid}
+  </select>
+
+  <select id="listByBillId" resultMap="MatchBillItem1201Map">
+    select fentryid, fid, fspbm, famount, fseq, fgoodsname, fspbm, fspecification, funit, fnum, ftaxrate,
+           funitprice, ftax, ftaxunitprice, fitemmatchstatus, fmatchtaxdeviation
+    from t_sim_match_bill_item_1201
+    where fid = #{fid}
+  </select>
+</mapper>

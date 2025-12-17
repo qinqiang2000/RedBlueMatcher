@@ -1,0 +1,37 @@
+server:
+  port: 8085
+
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/gaoji
+    username: qinqiang02
+    password:
+    driver-class-name: org.postgresql.Driver
+  jackson:
+    time-zone: Asia/Shanghai
+    serialization:
+      WRITE_DATES_AS_TIMESTAMPS: false
+
+mybatis:
+  mapper-locations: classpath*:mappers/*.xml
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
+
+logging:
+  level:
+    root: INFO
+    com.kingdee.taxc: INFO
+    com.kingdee.taxc.service: INFO
+    com.kingdee.taxc.mapper: INFO
+    com.kingdee.taxc.progress: INFO
+    org.mybatis: ERROR
+    org.apache.ibatis: ERROR
+    org.springframework: WARN
+    org.springframework.jdbc.core: ERROR
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+  file:
+    name: logs/tax-redflush-java.log
+    max-size: 100MB
+    max-history: 10

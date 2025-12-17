@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.kingdee.taxc.mapper.MatchBill1201Mapper">
+  <resultMap id="MatchBill1201Map" type="com.kingdee.taxc.entity.MatchBill1201">
+    <id property="fid" column="fid" />
+    <result property="fbillno" column="fbillno" />
+    <result property="fbillstatus" column="fbillstatus" />
+    <result property="fcreatorid" column="fcreatorid" />
+    <result property="fmodifierid" column="fmodifierid" />
+    <result property="fauditorid" column="fauditorid" />
+    <result property="fauditdate" column="fauditdate" />
+    <result property="fmodifytime" column="fmodifytime" />
+    <result property="fcreatetime" column="fcreatetime" />
+    <result property="forgid" column="forgid" />
+    <result property="fbuyertaxno" column="fbuyertaxno" />
+    <result property="fbuyername" column="fbuyername" />
+    <result property="fsalertaxno" column="fsalertaxno" />
+    <result property="fsalername" column="fsalername" />
+    <result property="fmatchamount" column="fmatchamount" />
+    <result property="fmatchtax" column="fmatchtax" />
+    <result property="fmatchtotalamount" column="fmatchtotalamount" />
+    <result property="fmatchinvoicenum" column="fmatchinvoicenum" />
+    <result property="fapplyamount" column="fapplyamount" />
+    <result property="fapplytax" column="fapplytax" />
+    <result property="fapplytotalamount" column="fapplytotalamount" />
+    <result property="finvoicetype" column="finvoicetype" />
+    <result property="fpayee" column="fpayee" />
+    <result property="freviewer" column="freviewer" />
+    <result property="fdrawer" column="fdrawer" />
+    <result property="fbuyerphone" column="fbuyerphone" />
+    <result property="fbuyeremail" column="fbuyeremail" />
+    <result property="fremark" column="fremark" />
+    <result property="fsystemsource" column="fsystemsource" />
+    <result property="fmatchrule" column="fmatchrule" />
+    <result property="fmatchtype" column="fmatchtype" />
+    <result property="fredreason" column="fredreason" />
+    <result property="fmatchstatus" column="fmatchstatus" />
+    <result property="fbuyerproperty" column="fbuyerproperty" />
+    <result property="fbuyeraddr" column="fbuyeraddr" />
+    <result property="fbuyertel" column="fbuyertel" />
+    <result property="fbuyerbank" column="fbuyerbank" />
+    <result property="fbuyerbankacc" column="fbuyerbankacc" />
+    <result property="fsaleraddr" column="fsaleraddr" />
+    <result property="fsalertel" column="fsalertel" />
+    <result property="fsalerbank" column="fsalerbank" />
+    <result property="fsalerbankacc" column="fsalerbankacc" />
+    <result property="fmatchbatch" column="fmatchbatch" />
+    <result property="fmatchtime" column="fmatchtime" />
+    <result property="fpushdownstatus" column="fpushdownstatus" />
+    <result property="fpushdowninvoicenum" column="fpushdowninvoicenum" />
+    <result property="fpushdownamount" column="fpushdownamount" />
+    <result property="fpushdowntax" column="fpushdowntax" />
+    <result property="fmatchconfig" column="fmatchconfig" />
+    <result property="fmatchtarget" column="fmatchtarget" />
+    <result property="fbuyerredemail" column="fbuyerredemail" />
+    <result property="fmainissuedamount" column="fmainissuedamount" />
+    <result property="fmainissuedtax" column="fmainissuedtax" />
+    <result property="fspecialtype" column="fspecialtype" />
+    <result property="fblueinvoicecode" column="fblueinvoicecode" />
+    <result property="fblueinvoiceno" column="fblueinvoiceno" />
+    <result property="fmatchmaintaxdeviation" column="fmatchmaintaxdeviation" />
+  </resultMap>
+
+  <select id="selectById" resultMap="MatchBill1201Map">
+    select * from t_sim_match_bill_1201 where fid = #{fid}
+  </select>
+</mapper>

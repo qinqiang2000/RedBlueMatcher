@@ -46,11 +46,11 @@ def count_red_invoices(excel_file: str):
             ws = wb.get_sheet_by_name(sheet_name)
             data = ws.to_python()
 
-            # 统计D列（索引3）唯一值，跳过表头
+            # 统计C列（索引2）唯一值，跳过表头
             invoice_numbers = set()
             for row in data[1:]:
-                if len(row) > 3 and row[3]:
-                    invoice_numbers.add(str(row[3]))
+                if len(row) > 2 and row[2]:
+                    invoice_numbers.add(str(row[2]))
 
             total_rows = len(data) - 1
             unique_count = len(invoice_numbers)
@@ -63,15 +63,15 @@ def count_red_invoices(excel_file: str):
 
         print(f"\n📊 统计结果:")
         print(f"   明细表总行数: {total_rows} 行")
-        print(f"   唯一蓝票发票号码数: {unique_count} 张")
+        print(f"   唯一蓝票fid数: {unique_count} 个")
         print(f"   需要开具的红票数量: {unique_count} 张")
         print(f"\n说明:")
         print(f"   - 一张红票只能对应一张蓝票")
-        print(f"   - D列（蓝票发票号码）的唯一值 = 需要开具的红票数")
-        print(f"   - 相当于Excel公式: =ROWS(UNIQUE(D2:D{total_rows + 1}))")
+        print(f"   - C列（该SKU红冲对应蓝票的fid）的唯一值 = 需要开具的红票数")
+        print(f"   - 相当于Excel公式: =ROWS(UNIQUE(C2:C{total_rows + 1}))")
 
-        # 显示前10张不同的发票号码
-        print(f"\n📋 发票号码样例（前10张）:")
+        # 显示前10个不同的蓝票fid
+        print(f"\n📋 蓝票fid样例（前10个）:")
         sample_invoices = sorted(invoice_numbers)[:10]
         for i, inv_no in enumerate(sample_invoices, start=1):
             print(f"   {i}. {inv_no}")

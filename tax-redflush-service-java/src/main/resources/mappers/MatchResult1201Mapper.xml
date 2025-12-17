@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.kingdee.taxc.mapper.MatchResult1201Mapper">
+  <insert id="insertBatch">
+    insert into t_sim_match_result_1201(
+      fbillid, fbuyertaxno, fsalertaxno, fspbm, finvoiceid, finvoiceitemid, fnum, fbillamount, finvoiceamount, fmatchamount, fbillunitprice, fbillqty, finvoiceunitprice, finvoiceqty, fmatchtime
+    )
+    values
+    <foreach collection="list" item="r" separator=",">
+      (#{r.fbillid}, #{r.fbuyertaxno}, #{r.fsalertaxno}, #{r.fspbm}, #{r.finvoiceid}, #{r.finvoiceitemid}, #{r.fnum}, #{r.fbillamount}, #{r.finvoiceamount}, #{r.fmatchamount}, #{r.fbillunitprice}, #{r.fbillqty}, #{r.finvoiceunitprice}, #{r.finvoiceqty}, #{r.fmatchtime})
+    </foreach>
+  </insert>
+</mapper>

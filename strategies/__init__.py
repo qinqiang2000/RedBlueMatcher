@@ -19,12 +19,14 @@ from .base import MatchingStrategy
 from .greedy_large import GreedyLargeStrategy
 from .ffd import FFDStrategy
 from .invoice_reuse import InvoiceReuseStrategy
+from .invoice_reuse_java import InvoiceReuseJavaStrategy
 
 # 策略注册表
 STRATEGIES = {
     'greedy_large': GreedyLargeStrategy,
     'ffd': FFDStrategy,
     'invoice_reuse': InvoiceReuseStrategy,
+    'invoice_reuse_java': InvoiceReuseJavaStrategy,
 }
 
 # 默认策略
@@ -90,6 +92,7 @@ __all__ = [
     'GreedyLargeStrategy',
     'FFDStrategy',
     'InvoiceReuseStrategy',
+    'InvoiceReuseJavaStrategy',
     'get_strategy',
     'list_strategies',
     'register_strategy',

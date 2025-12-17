@@ -37,17 +37,32 @@ class InvoiceReuseStrategy(MatchingStrategy):
     与 Java 版的差异：
     - 保留 Python 版的整数数量优化和尾差校验
     - 使用 NumPy 向量化精确匹配
+
+    跨SKU发票复用优化：
+    - _preferred_invoices 状态在 reset_preferred_invoices() 中重置
+    - pre_process_negatives() 不再清空状态，支持跨SKU累积
     """
 
     def __init__(self):
         super().__init__()
-        # 分组内状态（在 set_blue_pool/pre_process_negatives 中重置）
+        # 分组内状态
+        # _preferred_invoices: 跨SKU共享，在 reset_preferred_invoices() 中重置
+        # _sku_candidate_stats: 在 set_blue_pool() 中重置
         self._preferred_invoices: Set[int] = set()
         self._sku_candidate_stats: Dict[Tuple[str, str], Tuple[int, Decimal]] = {}
 
     @property
     def name(self) -> str:
         return "invoice_reuse"
+
+    def reset_preferred_invoices(self) -> None:
+        """
+        重置发票复用状态
+
+        在每个销购方组开始处理时调用，确保不同销购方之间的发票复用状态隔离。
+        同一销购方下的多个SKU会共享发票复用状态（不调用此方法）。
+        """
+        self._preferred_invoices.clear()
 
     def set_blue_pool(
         self,
@@ -84,7 +99,8 @@ class InvoiceReuseStrategy(MatchingStrategy):
         1. 候选蓝票行数升序（稀缺商品优先）
         2. 候选蓝票总金额升序
 
-        同时重置发票复用状态。
+        注意：不再清空 _preferred_invoices，以支持跨SKU发票复用。
+        发票复用状态由 reset_preferred_invoices() 在销购方组开始时重置。
 
         Args:
             negatives: 原始负数单据列表
@@ -92,8 +108,8 @@ class InvoiceReuseStrategy(MatchingStrategy):
         Returns:
             排序后的负数单据列表
         """
-        # 重置发票复用状态
-        self._preferred_invoices.clear()
+        # 【改进】不再清空发票复用状态，支持跨SKU累积
+        # self._preferred_invoices.clear()  # 移除此行
 
         def sort_key(neg):
             """排序键：(候选行数, 候选总金额)"""

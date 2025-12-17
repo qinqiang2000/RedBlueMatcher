@@ -1,0 +1,232 @@
+package com.kingdee.taxc.service;
+
+import com.kingdee.taxc.dto.MatchRequest;
+import com.kingdee.taxc.dto.MatchResult;
+import com.kingdee.taxc.dto.MatchedInvoiceItem;
+import com.kingdee.taxc.dto.BatchMatchRequest;
+import com.kingdee.taxc.mapper.RedFlushMapper;
+import com.kingdee.taxc.mapper.MatchBill1201Mapper;
+import com.kingdee.taxc.mapper.MatchBillItem1201Mapper;
+import com.kingdee.taxc.mapper.MatchResult1201Mapper;
+import com.kingdee.taxc.entity.MatchBill1201;
+import com.kingdee.taxc.entity.MatchResult1201;
+import org.springframework.stereotype.Service;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.List;
+import java.util.ArrayList;
+import java.time.LocalDateTime;
+import java.math.BigDecimal;
+
+@Service
+public class RedFlushService {
+    private final RedFlushMapper mapper;
+    private final MatchBill1201Mapper billMapper;
+    private final MatchBillItem1201Mapper billItemMapper;
+    private final MatchResult1201Mapper resultMapper;
+    private static final Logger log = LoggerFactory.getLogger(RedFlushService.class);
+
+    public RedFlushService(RedFlushMapper mapper, MatchBill1201Mapper billMapper, MatchBillItem1201Mapper billItemMapper, MatchResult1201Mapper resultMapper) {
+        this.mapper = mapper;
+        this.billMapper = billMapper;
+        this.billItemMapper = billItemMapper;
+        this.resultMapper = resultMapper;
+    }
+
+    public MatchResult match(MatchRequest req) {
+        List<MatchedInvoiceItem> items;
+        if (req.getNegativeApplyId() != null) {
+            MatchBill1201 bill = billMapper.selectById(req.getNegativeApplyId());
+            List<com.kingdee.taxc.entity.MatchBillItem1201> billItems = billItemMapper.listByBillId(req.getNegativeApplyId());
+            for (int idx = 0; idx < billItems.size(); idx++) {
+                com.kingdee.taxc.entity.MatchBillItem1201 bi = billItems.get(idx);
+                String code = bi.getFspbm();
+                BigDecimal target = bi.getFamount();
+                BigDecimal targetAbs = target == null ? BigDecimal.ZERO : target.abs();
+                log.info("处理单据 {} 商品编码 {} 剩余未处理 {}", req.getNegativeApplyId(), code, billItems.size() - idx - 1);
+                List<MatchedInvoiceItem> candidates = mapper.matchByTaxAndProduct(bill.getFbuyertaxno(), bill.getFsalertaxno(), code);
+                BigDecimal sum = BigDecimal.ZERO;
+                List<MatchResult1201> batch = new ArrayList<>();
+                boolean exactMatched = false;
+                for (MatchedInvoiceItem mi : candidates) {
+                    if (mi.getAmount().compareTo(targetAbs) == 0) {
+                        MatchResult1201 rec = new MatchResult1201();
+                        rec.setFbillid(req.getNegativeApplyId());
+                        rec.setFbuyertaxno(bill.getFbuyertaxno());
+                        rec.setFsalertaxno(bill.getFsalertaxno());
+                        rec.setFspbm(mi.getProductCode());
+                        rec.setFinvoiceid(mi.getInvoiceId());
+                        rec.setFinvoiceitemid(mi.getItemId());
+                        rec.setFnum(mi.getQuantity());
+                        rec.setFbillamount(bi.getFamount());
+                        rec.setFinvoiceamount(mi.getAmount());
+                        rec.setFmatchamount(targetAbs);
+                        rec.setFmatchtime(LocalDateTime.now());
+                        batch.add(rec);
+                        exactMatched = true;
+                        break;
+                    }
+                }
+                if (!exactMatched) {
+                    for (MatchedInvoiceItem mi : candidates) {
+                        BigDecimal remaining = targetAbs.subtract(sum);
+                        if (mi.getAmount().compareTo(remaining) <= 0) {
+                            sum = sum.add(mi.getAmount());
+                            MatchResult1201 rec = new MatchResult1201();
+                            rec.setFbillid(req.getNegativeApplyId());
+                            rec.setFbuyertaxno(bill.getFbuyertaxno());
+                            rec.setFsalertaxno(bill.getFsalertaxno());
+                            rec.setFspbm(mi.getProductCode());
+                            rec.setFinvoiceid(mi.getInvoiceId());
+                            rec.setFinvoiceitemid(mi.getItemId());
+                            rec.setFnum(mi.getQuantity());
+                            rec.setFbillamount(bi.getFamount());
+                            rec.setFinvoiceamount(mi.getAmount());
+                            rec.setFmatchamount(mi.getAmount());
+                            rec.setFmatchtime(LocalDateTime.now());
+                            batch.add(rec);
+                            if (sum.compareTo(targetAbs) == 0) {
+                                break;
+                            }
+                        } else {
+                            MatchResult1201 rec = new MatchResult1201();
+                            rec.setFbillid(req.getNegativeApplyId());
+                            rec.setFbuyertaxno(bill.getFbuyertaxno());
+                            rec.setFsalertaxno(bill.getFsalertaxno());
+                            rec.setFspbm(mi.getProductCode());
+                            rec.setFinvoiceid(mi.getInvoiceId());
+                            rec.setFinvoiceitemid(mi.getItemId());
+                            rec.setFnum(mi.getQuantity());
+                            rec.setFbillamount(bi.getFamount());
+                            rec.setFinvoiceamount(mi.getAmount());
+                            rec.setFmatchamount(remaining);
+                            rec.setFmatchtime(LocalDateTime.now());
+                            batch.add(rec);
+                            break;
+                        }
+                    }
+                }
+                if (!batch.isEmpty()) {
+                    insertBatchChunked(batch);
+                }
+            }
+            MatchResult r = new MatchResult();
+            r.setBuyerTaxNo(bill.getFbuyertaxno());
+            r.setSellerTaxNo(bill.getFsalertaxno());
+            r.setItems(new ArrayList<>());
+            return r;
+        } else {
+            items = mapper.matchByTaxAndProduct(req.getBuyerTaxNo(), req.getSellerTaxNo(), req.getProductCode());
+        }
+        MatchResult r = new MatchResult();
+        r.setBuyerTaxNo(req.getBuyerTaxNo());
+        r.setSellerTaxNo(req.getSellerTaxNo());
+        r.setProductCode(req.getProductCode());
+        r.setItems(items);
+        return r;
+    }
+
+    public List<MatchResult> batchMatch(BatchMatchRequest req) {
+        List<MatchResult> results = new ArrayList<>();
+        if (req.getBillIds() == null || req.getBillIds().isEmpty()) {
+            return results;
+        }
+        for (Long billId : req.getBillIds()) {
+            MatchBill1201 bill = billMapper.selectById(billId);
+            if (bill == null) {
+                continue;
+            }
+            List<com.kingdee.taxc.entity.MatchBillItem1201> billItems = billItemMapper.listByBillId(billId);
+            for (int idx = 0; idx < billItems.size(); idx++) {
+                com.kingdee.taxc.entity.MatchBillItem1201 bi = billItems.get(idx);
+                String code = bi.getFspbm();
+                BigDecimal target = bi.getFamount();
+                BigDecimal targetAbs = target == null ? BigDecimal.ZERO : target.abs();
+                log.info("处理单据 {} 商品编码 {} 剩余未处理 {}", billId, code, billItems.size() - idx - 1);
+                List<MatchedInvoiceItem> candidates = mapper.matchByTaxAndProduct(bill.getFbuyertaxno(), bill.getFsalertaxno(), code);
+                BigDecimal sum = BigDecimal.ZERO;
+                List<MatchResult1201> batch = new ArrayList<>();
+                boolean exactMatched = false;
+                for (MatchedInvoiceItem mi : candidates) {
+                    if (mi.getAmount().compareTo(targetAbs) == 0) {
+                        MatchResult1201 rec = new MatchResult1201();
+                        rec.setFbillid(billId);
+                        rec.setFbuyertaxno(bill.getFbuyertaxno());
+                        rec.setFsalertaxno(bill.getFsalertaxno());
+                        rec.setFspbm(mi.getProductCode());
+                        rec.setFinvoiceid(mi.getInvoiceId());
+                        rec.setFinvoiceitemid(mi.getItemId());
+                        rec.setFnum(mi.getQuantity());
+                        rec.setFbillamount(bi.getFamount());
+                        rec.setFinvoiceamount(mi.getAmount());
+                        rec.setFmatchamount(targetAbs);
+                        rec.setFmatchtime(LocalDateTime.now());
+                        batch.add(rec);
+                        exactMatched = true;
+                        break;
+                    }
+                }
+                if (!exactMatched) {
+                    for (MatchedInvoiceItem mi : candidates) {
+                        BigDecimal remaining = targetAbs.subtract(sum);
+                        if (mi.getAmount().compareTo(remaining) <= 0) {
+                            sum = sum.add(mi.getAmount());
+                            MatchResult1201 rec = new MatchResult1201();
+                            rec.setFbillid(billId);
+                            rec.setFbuyertaxno(bill.getFbuyertaxno());
+                            rec.setFsalertaxno(bill.getFsalertaxno());
+                            rec.setFspbm(mi.getProductCode());
+                            rec.setFinvoiceid(mi.getInvoiceId());
+                            rec.setFinvoiceitemid(mi.getItemId());
+                            rec.setFnum(mi.getQuantity());
+                            rec.setFbillamount(bi.getFamount());
+                            rec.setFinvoiceamount(mi.getAmount());
+                            rec.setFmatchamount(mi.getAmount());
+                            rec.setFmatchtime(LocalDateTime.now());
+                            batch.add(rec);
+                            if (sum.compareTo(targetAbs) == 0) {
+                                break;
+                            }
+                        } else {
+                            MatchResult1201 rec = new MatchResult1201();
+                            rec.setFbillid(billId);
+                            rec.setFbuyertaxno(bill.getFbuyertaxno());
+                            rec.setFsalertaxno(bill.getFsalertaxno());
+                            rec.setFspbm(mi.getProductCode());
+                            rec.setFinvoiceid(mi.getInvoiceId());
+                            rec.setFinvoiceitemid(mi.getItemId());
+                            rec.setFnum(mi.getQuantity());
+                            rec.setFbillamount(bi.getFamount());
+                            rec.setFinvoiceamount(mi.getAmount());
+                            rec.setFmatchamount(remaining);
+                            rec.setFmatchtime(LocalDateTime.now());
+                            batch.add(rec);
+                            break;
+                        }
+                    }
+                }
+                if (!batch.isEmpty()) {
+                    insertBatchChunked(batch);
+                }
+            }
+            MatchResult r = new MatchResult();
+            r.setBuyerTaxNo(bill.getFbuyertaxno());
+            r.setSellerTaxNo(bill.getFsalertaxno());
+            r.setItems(new ArrayList<>());
+            results.add(r);
+        }
+        return results;
+    }
+
+    private void insertBatchChunked(List<MatchResult1201> list) {
+        if (list == null || list.isEmpty()) {
+            return;
+        }
+        int chunk = 1000;
+        for (int i = 0; i < list.size(); i += chunk) {
+            List<MatchResult1201> sub = list.subList(i, Math.min(i + chunk, list.size()));
+            resultMapper.insertBatch(sub);
+        }
+    }
+}
