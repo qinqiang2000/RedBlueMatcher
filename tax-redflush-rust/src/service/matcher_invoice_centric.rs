@@ -1,5 +1,6 @@
 use bigdecimal::{BigDecimal, Zero};
 use crate::db::{queries, queries_invoice_centric};
+use futures::{stream, StreamExt};
 use crate::models::{
     InvoiceScoringContext, MatchingRequirements, MatchResult1201, MatchStats,
     MatchBillItem1201,
@@ -68,26 +69,48 @@ impl InvoiceCentricMatcher {
             bill_id, total_skus
         );
 
-        // Phase 3: 一次性查询所有候选发票明细
-        let all_items = queries_invoice_centric::query_all_candidate_items(
+        // Phase 3: 分步分批查询候选发票明细 (优化版)
+        // 3.1 获取所有候选发票ID
+        let all_fids = queries_invoice_centric::query_candidate_invoice_ids(
             &self.pool,
             &bill.fbuyertaxno,
             &bill.fsalertaxno,
-            &sku_list,
         )
         .await?;
+        
+        // 3.2 并发分批拉取明细
+        let mut all_items = Vec::new();
+const BATCH_SIZE: usize = 500;
+const CONCURRENCY: usize = 10;
 
-        let total_candidate_invoices = {
-            let mut unique_invoices = std::collections::HashSet::new();
-            for item in &all_items {
-                unique_invoices.insert(item.invoice_id);
-            }
-            unique_invoices.len()
-        };
+// Create owned chunks to avoid lifetime issues with async stream
+let chunks: Vec<Vec<i64>> = all_fids.chunks(BATCH_SIZE).map(|c| c.to_vec()).collect();
+
+let mut stream = stream::iter(chunks)
+    .map(|chunk_vec| {
+        let pool = self.pool.clone();
+        let sku_list = sku_list.clone();
+        async move {
+            queries_invoice_centric::query_items_by_fids_and_skus(
+                &pool,
+                &chunk_vec,
+                &sku_list,
+            )
+            .await
+        }
+    })
+    .buffer_unordered(CONCURRENCY);
+
+while let Some(result) = stream.next().await {
+    let batch_items = result?;
+    all_items.extend(batch_items);
+}
+
+        let total_candidate_invoices = all_fids.len();
 
         tracing::info!(
-            "[Invoice-Centric] Bill {}: 查询到 {} 条明细, {} 张候选发票",
-            bill_id, all_items.len(), total_candidate_invoices
+            "[Invoice-Centric] Bill {}: 查询完成, {} 张候选发票, {} 条明细",
+            bill_id, total_candidate_invoices, all_items.len()
         );
 
         // Phase 4: 构建评分上下文

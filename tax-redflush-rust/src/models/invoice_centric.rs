@@ -213,7 +213,7 @@ impl InvoiceScoringContext {
             let is_better = match &best {
                 None => true,
                 Some((_, best_sku, best_amt)) => {
-                    sku_count > *best_sku || (sku_count == *best_sku && amount > *best_amt)
+                    amount > *best_amt || (amount == *best_amt && sku_count > *best_sku)
                 }
             };
 

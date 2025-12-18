@@ -35,6 +35,7 @@ tracing-subscriber = { version = "0.3", features = ["local-time", "fmt", "chrono
 
 # 配置
 config = "0.14"
+futures = "0.3.31"
 
 [lib]
 name = "tax_redflush_rust"
