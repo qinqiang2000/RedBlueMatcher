@@ -1,7 +1,8 @@
 #!/bin/bash
 
 # Rust 发票匹配触发脚本
-# 用法: ./trigger_rust_match.sh [销方税号] [购方税号]
+# 用法: ./trigger_rust_match.sh [v1|v2] [销方税号] [购方税号]
+# 或:   ./trigger_rust_match.sh [销方税号] [购方税号] [v1|v2]
 
 # 脚本所在目录
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -40,10 +41,58 @@ done < "$ENV_FILE"
 
 # 设置默认值
 SERVER_HOST=${SERVER_HOST:-127.0.0.1}
-SERVER_PORT=${SERVER_PORT:-8080}
+SERVER_PORT=${SERVER_PORT:-8089}
 
 echo_green "✓ 数据库: $DB_HOST:$DB_PORT/$DB_NAME"
 echo_green "✓ 服务地址: $SERVER_HOST:$SERVER_PORT"
+echo ""
+
+# 解析命令行参数
+VERSION="v2"  # 默认版本
+SELLER="91341103MA2TWC9B1Q"  # 默认销方税号
+BUYER="9134110275298062X0"   # 默认购方税号
+
+# 检查参数数量和类型
+if [ $# -eq 0 ]; then
+    # 无参数，使用所有默认值
+    echo_blue "使用默认配置: v2 算法, 默认税号"
+elif [ $# -eq 1 ]; then
+    # 一个参数，可能是版本号
+    if [[ "$1" == "v1" ]] || [[ "$1" == "v2" ]]; then
+        VERSION="$1"
+        echo_blue "使用版本: $VERSION, 默认税号"
+    else
+        echo_red "错误: 单个参数必须是 'v1' 或 'v2'"
+        echo_red "用法: $0 [v1|v2] [销方税号] [购方税号]"
+        exit 1
+    fi
+elif [ $# -eq 2 ]; then
+    # 两个参数，视为税号
+    SELLER="$1"
+    BUYER="$2"
+    echo_blue "使用版本: v2, 自定义税号"
+elif [ $# -eq 3 ]; then
+    # 三个参数
+    # 检查第一个参数是否是版本
+    if [[ "$1" == "v1" ]] || [[ "$1" == "v2" ]]; then
+        VERSION="$1"
+        SELLER="$2"
+        BUYER="$3"
+    # 检查第三个参数是否是版本
+    elif [[ "$3" == "v1" ]] || [[ "$3" == "v2" ]]; then
+        SELLER="$1"
+        BUYER="$2"
+        VERSION="$3"
+    else
+        echo_red "错误: 版本参数必须是 'v1' 或 'v2'"
+        exit 1
+    fi
+else
+    echo_red "错误: 参数过多"
+    echo_red "用法: $0 [v1|v2] [销方税号] [购方税号]"
+    exit 1
+fi
+
 echo ""
 
 # 2. 停止并重启服务
@@ -124,12 +173,9 @@ echo ""
 # 3. 查询待匹配单据
 echo_blue "=== 查询待匹配单据 ==="
 
-# 默认税号（可通过参数覆盖）
-SELLER=${1:-"91341103MA2TWC9B1Q"}
-BUYER=${2:-"9134110275298062X0"}
-
-echo_blue "销方税号: $SELLER"
-echo_blue "购方税号: $BUYER"
+# 默认税号（已在上面通过命令行参数解析设置）
+# SELLER=${1:-"91341103MA2TWC9B1Q"}
+# BUYER=${2:-"9134110275298062X0"}
 
 # 生成 SQL 查询
 cat > /tmp/query_billids_rust.sql <<EOF
@@ -177,8 +223,19 @@ echo "yes" | "$CLEAN_SCRIPT" tax "$SELLER" "$BUYER" 2>&1 | grep -E "(删除|错�
 echo ""
 
 # 5. 触发匹配
-echo_blue "=== 触发批量匹配 ==="
-echo_blue "请求 URL: http://$SERVER_HOST:$SERVER_PORT/api/match/batch"
+if [[ "$VERSION" == "v1" ]]; then
+    echo_blue "=== 触发批量匹配 (SKU-Centric v1) ==="
+    ENDPOINT="/api/match/batch"
+    ALGORITHM="SKU-Centric"
+else
+    echo_blue "=== 触发批量匹配 (Invoice-Centric v2) ==="
+    ENDPOINT="/api/match/batch/v2"
+    ALGORITHM="Invoice-Centric"
+fi
+echo_blue "请求 URL: http://$SERVER_HOST:$SERVER_PORT$ENDPOINT"
+echo_blue "算法版本: $ALGORITHM"
+echo_blue "销方税号: $SELLER"
+echo_blue "购方税号: $BUYER"
 echo ""
 
 # 发送请求（带超时）
@@ -186,7 +243,7 @@ echo_yellow "匹配进行中，请等待..."
 echo_yellow "实时日志已在新终端窗口中打开"
 echo ""
 
-RESPONSE=$(curl -s --max-time 300 -X POST "http://$SERVER_HOST:$SERVER_PORT/api/match/batch" \
+RESPONSE=$(curl -s --max-time 300 -X POST "http://$SERVER_HOST:$SERVER_PORT$ENDPOINT" \
     -H "Content-Type: application/json" \
     -d "{\"bill_ids\": $BILL_IDS}")
 

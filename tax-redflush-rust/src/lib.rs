@@ -6,4 +6,4 @@ pub mod service;
 
 pub use config::AppConfig;
 pub use db::create_pool;
-pub use service::MatcherService;
+pub use service::{MatcherService, InvoiceCentricMatcher};

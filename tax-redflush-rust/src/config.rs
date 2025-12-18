@@ -23,7 +23,7 @@ impl Default for AppConfig {
         Self {
             server: ServerConfig {
                 host: "127.0.0.1".to_string(),
-                port: 8080,
+                port: 8089,
             },
             database: DatabaseConfig {
                 url: std::env::var("DATABASE_URL")
@@ -42,7 +42,7 @@ impl AppConfig {
                 port: std::env::var("SERVER_PORT")
                     .ok()
                     .and_then(|p| p.parse().ok())
-                    .unwrap_or(8080),
+                    .unwrap_or(8089),
             },
             database: DatabaseConfig {
                 url: std::env::var("DATABASE_URL")
