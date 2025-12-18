@@ -94,8 +94,12 @@ impl MatchingRequirements {
     pub fn from_bill_items(bill_items: &[crate::models::MatchBillItem1201]) -> Self {
         let mut requirements = HashMap::new();
         for item in bill_items {
+            let sku = item.fspbm.trim();
+            if sku.is_empty() {
+                continue;
+            }
             let amount = item.famount.abs();
-            *requirements.entry(item.fspbm.clone()).or_insert_with(|| BigDecimal::from(0)) += amount;
+            *requirements.entry(sku.to_string()).or_insert_with(|| BigDecimal::from(0)) += amount;
         }
         Self { requirements }
     }
@@ -129,6 +133,14 @@ impl MatchingRequirements {
     pub fn remaining_sku_count(&self) -> usize {
         self.requirements.len()
     }
+
+    /// 获取剩余未满足的SKU详情 (SKU, Amount)
+    pub fn get_remaining_details(&self) -> Vec<(String, BigDecimal)> {
+        self.requirements
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect()
+    }
 }
 
 impl Default for MatchingRequirements {
@@ -144,6 +156,8 @@ pub struct InvoiceScoringContext {
     invoices: HashMap<i64, Vec<InvoiceItemState>>,
     /// 倒排索引：SKU -> 拥有该SKU的发票ID列表
     sku_invoice_index: HashMap<String, HashSet<i64>>,
+    /// SKU 全局频率表 (用于计算稀缺性)
+    sku_frequency_map: HashMap<String, i64>,
     /// 已使用过的发票（用于统计，不影响复用）
     used_invoices: HashSet<i64>,
 }
@@ -153,20 +167,27 @@ impl InvoiceScoringContext {
         Self {
             invoices: HashMap::new(),
             sku_invoice_index: HashMap::new(),
+            sku_frequency_map: HashMap::new(),
             used_invoices: HashSet::new(),
         }
     }
 
-    /// 从发票明细列表构建上下文，同时创建倒排索引
+    /// 从发票明细列表构建上下文，同时创建倒排索引和频率表
     pub fn from_items(items: Vec<InvoiceItemDetail>) -> Self {
         let mut invoices: HashMap<i64, Vec<InvoiceItemState>> = HashMap::new();
         let mut sku_invoice_index: HashMap<String, HashSet<i64>> = HashMap::new();
+        let mut sku_frequency_map: HashMap<String, i64> = HashMap::new();
 
         for item in items {
+            let sku = item.product_code.trim();
+            if sku.is_empty() {
+                continue;
+            }
+
             let state = InvoiceItemState {
                 invoice_id: item.invoice_id,
                 item_id: item.item_id,
-                product_code: item.product_code.clone(),
+                product_code: sku.to_string(),
                 quantity: item.quantity,
                 original_amount: item.amount.clone(),
                 remaining_amount: item.amount,  // 初始时剩余金额 = 原始金额
@@ -174,10 +195,13 @@ impl InvoiceScoringContext {
             };
 
             // 更新倒排索引
-            sku_invoice_index
+            if sku_invoice_index
                 .entry(state.product_code.clone())
                 .or_insert_with(HashSet::new)
-                .insert(state.invoice_id);
+                .insert(state.invoice_id) {
+                    // 仅当是新发票包含此SKU时，增加频率计数
+                    *sku_frequency_map.entry(state.product_code.clone()).or_insert(0) += 1;
+                }
 
             // 添加到发票明细列表
             invoices
@@ -189,11 +213,12 @@ impl InvoiceScoringContext {
         Self {
             invoices,
             sku_invoice_index,
+            sku_frequency_map,
             used_invoices: HashSet::new(),
         }
     }
 
-    /// 查找最优发票 - 只搜索有当前需求SKU的发票
+    /// 查找最优发票 - (Scarcity-Weighted Greedy Strategy)
     pub fn find_best_invoice(&self, requirements: &MatchingRequirements) -> Option<i64> {
         // 收集候选发票（只查有需求SKU的）
         let mut candidates: HashSet<i64> = HashSet::new();
@@ -203,22 +228,28 @@ impl InvoiceScoringContext {
             }
         }
 
-        let mut best: Option<(i64, i64, BigDecimal)> = None;
+        let mut best: Option<(i64, BigDecimal, i64)> = None; // (id, weighted_score, sku_count)
+
         for invoice_id in candidates {
-            let (sku_count, amount) = self.calculate_coverage(invoice_id, requirements);
+            let (sku_count, amount, scarcity_score) = self.calculate_coverage(invoice_id, requirements);
             if sku_count == 0 {
                 continue;
             }
 
+            // 综合评分 = 金额 + 稀缺性奖励
+            // 虽然 BigDecimal 加法开销稍大，但为了精度和逻辑正确是值得的。
+            // 稀缺性奖励: 覆盖一个Singleton SKU 奖励 100 分。
+            let weighted_score = amount.clone() + scarcity_score;
+
             let is_better = match &best {
                 None => true,
-                Some((_, best_sku, best_amt)) => {
-                    amount > *best_amt || (amount == *best_amt && sku_count > *best_sku)
+                Some((_, best_score, best_sku_count)) => {
+                    weighted_score > *best_score || (weighted_score == *best_score && sku_count > *best_sku_count)
                 }
             };
 
             if is_better {
-                best = Some((invoice_id, sku_count, amount));
+                best = Some((invoice_id, weighted_score, sku_count));
             }
         }
 
@@ -226,14 +257,16 @@ impl InvoiceScoringContext {
     }
 
     /// 计算覆盖度（基于剩余金额）
-    fn calculate_coverage(&self, invoice_id: i64, requirements: &MatchingRequirements) -> (i64, BigDecimal) {
+    /// 返回 (覆盖的SKU数量, 可匹配总金额, 稀缺性评分)
+    fn calculate_coverage(&self, invoice_id: i64, requirements: &MatchingRequirements) -> (i64, BigDecimal, BigDecimal) {
         let items = match self.invoices.get(&invoice_id) {
             Some(i) => i,
-            None => return (0, BigDecimal::from(0)),
+            None => return (0, BigDecimal::from(0), BigDecimal::from(0)),
         };
 
         let mut sku_count = 0i64;
         let mut amount_sum = BigDecimal::from(0);
+        let mut scarcity_score = BigDecimal::from(0);
 
         for item in items {
             if item.remaining_amount <= BigDecimal::from(0) {
@@ -249,11 +282,23 @@ impl InvoiceScoringContext {
                         required.clone()
                     };
                     amount_sum += available;
+
+                    // 计算稀缺性加分: 100.0 / frequency
+                    // if freq is 1 (Singleton), bonus is 100.
+                    // if freq is 100 (Common), bonus is 1.
+                    if let Some(&freq) = self.sku_frequency_map.get(&item.product_code) {
+                        if freq > 0 {
+                            // 使用简单的整数除法转BigDecimal，或者构造浮点
+                            // 这里为了简单，假设 bonus = 100 / freq (取整)
+                            let bonus = 1000 / freq; 
+                            scarcity_score += BigDecimal::from(bonus);
+                        }
+                    }
                 }
             }
         }
 
-        (sku_count, amount_sum)
+        (sku_count, amount_sum, scarcity_score)
     }
 
     /// 消费明细金额（不标记整个发票为已使用）

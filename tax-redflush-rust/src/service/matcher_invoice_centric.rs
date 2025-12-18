@@ -205,6 +205,23 @@ while let Some(result) = stream.next().await {
         let matched_skus = total_skus - requirements.remaining_sku_count();
         let invoices_used = scoring_context.used_count();
 
+        // 记录未匹配的SKU详情
+        if requirements.remaining_sku_count() > 0 {
+            let remaining_details = requirements.get_remaining_details();
+            let mut total_remaining_amount = BigDecimal::zero();
+            let mut details_str = String::new();
+
+            for (sku, amount) in remaining_details {
+                total_remaining_amount += &amount;
+                details_str.push_str(&format!("{} ({}), ", sku, amount));
+            }
+
+            tracing::warn!(
+                "[Invoice-Centric] Bill {}: ⚠️ 有 {} 个SKU未完全匹配! 总缺口金额: {}. 详情: [{}]",
+                bill_id, requirements.remaining_sku_count(), total_remaining_amount, details_str.trim_end_matches(", ")
+            );
+        }
+
         if !results.is_empty() {
             for chunk in results.chunks(1000) {
                 queries::insert_batch(&self.pool, chunk).await?;
