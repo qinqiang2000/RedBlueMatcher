@@ -141,11 +141,16 @@ while let Some(result) = stream.next().await {
             .collect();
 
         let mut iteration = 0;
+        
+        // 5.0 初始化惰性堆 (只需做一次)
+        scoring_context.init_heap(&requirements);
+        tracing::info!("[Invoice-Centric] Bill {}: 惰性堆初始化完成", bill_id);
+
         while !requirements.is_satisfied() {
             iteration += 1;
 
-            // 找当前最优发票
-            let best_invoice_id = scoring_context.find_best_invoice(&requirements);
+            // 找当前最优发票 (Lazy Greedy)
+            let best_invoice_id = scoring_context.find_best_invoice_lazy(&requirements);
 
             let Some(invoice_id) = best_invoice_id else {
                 tracing::warn!(

@@ -1,7 +1,31 @@
-use bigdecimal::BigDecimal;
+use bigdecimal::{BigDecimal, ToPrimitive};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use std::collections::{HashMap, HashSet};
+use std::cmp::Ordering;
+use std::collections::{BinaryHeap, HashMap, HashSet};
+
+/// 发票评分（用于堆排序）
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InvoiceScore {
+    pub invoice_id: i64,
+    pub score: i64,      // 整数化评分 (amount * 100 + bonus)
+    pub sku_count: i64,  // 覆盖SKU数量 (第二优先级)
+}
+
+impl Ord for InvoiceScore {
+    fn cmp(&self, other: &Self) -> Ordering {
+        // 先按分数比较，分数相同按 SKU 数量比较
+        self.score
+            .cmp(&other.score)
+            .then_with(|| self.sku_count.cmp(&other.sku_count))
+    }
+}
+
+impl PartialOrd for InvoiceScore {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
 
 /// 发票覆盖度统计 - 用于查询结果
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
@@ -160,6 +184,11 @@ pub struct InvoiceScoringContext {
     sku_frequency_map: HashMap<String, i64>,
     /// 已使用过的发票（用于统计，不影响复用）
     used_invoices: HashSet<i64>,
+    /// 惰性堆 (Lazy Heap) - 缓存发票评分
+    heap: BinaryHeap<InvoiceScore>,
+    // 对发票评分的缓存检查机制 (Lazy Check 不需要复杂版本号，直接重算对比即可，
+    // 但为了极致性能，我们可以记录上次计算时的 remaining_sku_count 或类似标记，
+    // 这里简化逻辑：Pop出来 -> Re-calculate -> 比较 -> If dropped, push back)
 }
 
 impl InvoiceScoringContext {
@@ -169,6 +198,7 @@ impl InvoiceScoringContext {
             sku_invoice_index: HashMap::new(),
             sku_frequency_map: HashMap::new(),
             used_invoices: HashSet::new(),
+            heap: BinaryHeap::new(),
         }
     }
 
@@ -215,12 +245,15 @@ impl InvoiceScoringContext {
             sku_invoice_index,
             sku_frequency_map,
             used_invoices: HashSet::new(),
+            heap: BinaryHeap::new(),
         }
     }
 
-    /// 查找最优发票 - (Scarcity-Weighted Greedy Strategy)
-    pub fn find_best_invoice(&self, requirements: &MatchingRequirements) -> Option<i64> {
-        // 收集候选发票（只查有需求SKU的）
+    /// 初始化堆（第一轮全量计算）
+    pub fn init_heap(&mut self, requirements: &MatchingRequirements) {
+        self.heap.clear();
+        
+        // 收集所有相关候选发票（只查有需求SKU的）
         let mut candidates: HashSet<i64> = HashSet::new();
         for sku in requirements.get_required_skus() {
             if let Some(inv_ids) = self.sku_invoice_index.get(&sku) {
@@ -228,45 +261,83 @@ impl InvoiceScoringContext {
             }
         }
 
-        let mut best: Option<(i64, BigDecimal, i64)> = None; // (id, weighted_score, sku_count)
-
         for invoice_id in candidates {
-            let (sku_count, amount, scarcity_score) = self.calculate_coverage(invoice_id, requirements);
-            if sku_count == 0 {
-                continue;
-            }
-
-            // 综合评分 = 金额 + 稀缺性奖励
-            // 虽然 BigDecimal 加法开销稍大，但为了精度和逻辑正确是值得的。
-            // 稀缺性奖励: 覆盖一个Singleton SKU 奖励 100 分。
-            let weighted_score = amount.clone() + scarcity_score;
-
-            let is_better = match &best {
-                None => true,
-                Some((_, best_score, best_sku_count)) => {
-                    weighted_score > *best_score || (weighted_score == *best_score && sku_count > *best_sku_count)
-                }
-            };
-
-            if is_better {
-                best = Some((invoice_id, weighted_score, sku_count));
+            let (score, sku_count) = self.calculate_score_int(invoice_id, requirements);
+            if score > 0 {
+                self.heap.push(InvoiceScore {
+                    invoice_id,
+                    score,
+                    sku_count,
+                });
             }
         }
-
-        best.map(|(id, _, _)| id)
     }
 
-    /// 计算覆盖度（基于剩余金额）
-    /// 返回 (覆盖的SKU数量, 可匹配总金额, 稀缺性评分)
-    fn calculate_coverage(&self, invoice_id: i64, requirements: &MatchingRequirements) -> (i64, BigDecimal, BigDecimal) {
-        let items = match self.invoices.get(&invoice_id) {
+    /// 查找最优发票 - (Lazy Greed Strategy)
+    pub fn find_best_invoice_lazy(&mut self, requirements: &MatchingRequirements) -> Option<i64> {
+        loop {
+            // 1. 取出堆顶（当前认为最好的）
+            let best_candidate = match self.heap.pop() {
+                Some(c) => c,
+                None => return None, // 堆空了，没发票了
+            };
+
+            // 2. 惰性检查 (Lazy Check)
+            // 重新计算它的真实评分
+            let (current_score, current_sku_count) = self.calculate_score_int(best_candidate.invoice_id, requirements);
+
+            // 3. 比较
+            // 如果堆已经是空的，或者 当前评分 >= 堆顶评分，说明它就是冠军！
+            // (注意：InvoiceScore 实现的是 Max-Heap，pop 出来的是最大的。
+            // 只有当重新计算后的分数比堆里第二名还要小的时候，才需要放回去重新排。)
+            
+            match self.heap.peek() {
+                None => {
+                    // 堆空了，它就是唯一的王
+                    // 但要确保它还有效 (score > 0)
+                    if current_score > 0 {
+                        return Some(best_candidate.invoice_id);
+                    } else {
+                        continue; // 废了，丢弃，下一位
+                    }
+                }
+                Some(second_best) => {
+                    if current_score >= second_best.score {
+                        // 依然比第二名强 (或者相等)，它就是冠军
+                        if current_score > 0 {
+                             return Some(best_candidate.invoice_id);
+                        } else {
+                            continue; // 废了
+                        }
+                    } else {
+                        // 4. 它变弱了，退回去重新排队
+                         if current_score > 0 {
+                            self.heap.push(InvoiceScore {
+                                invoice_id: best_candidate.invoice_id,
+                                score: current_score,
+                                sku_count: current_sku_count,
+                            });
+                        }
+                        // 继续 loop，处理下一个堆顶
+                    }
+                }
+            }
+        }
+    }
+    
+    // 保留原方法用于兼容或对比（可选，目前直接替换调用）
+    // pub fn find_best_invoice(...) 
+
+    /// 计算整数评分 (Integer Arithmetic Optimization)
+    /// 返回 (Score, SkuCount)
+    fn calculate_score_int(&self, invoice_id: i64, requirements: &MatchingRequirements) -> (i64, i64) {
+         let items = match self.invoices.get(&invoice_id) {
             Some(i) => i,
-            None => return (0, BigDecimal::from(0), BigDecimal::from(0)),
+            None => return (0, 0),
         };
 
         let mut sku_count = 0i64;
-        let mut amount_sum = BigDecimal::from(0);
-        let mut scarcity_score = BigDecimal::from(0);
+        let mut score: i64 = 0;
 
         for item in items {
             if item.remaining_amount <= BigDecimal::from(0) {
@@ -277,29 +348,31 @@ impl InvoiceScoringContext {
                 if *required > BigDecimal::from(0) {
                     sku_count += 1;
                     let available = if item.remaining_amount < *required {
-                        item.remaining_amount.clone()
+                        &item.remaining_amount
                     } else {
-                        required.clone()
+                        required
                     };
-                    amount_sum += available;
+                    
+                    // 整数化: available * 100
+                    // 注意：这里可能会有精度截断，但作为评分标准通常足够
+                    if let Some(cent_val) = (available * BigDecimal::from(100)).to_i64() {
+                        score += cent_val;
+                    }
 
-                    // 计算稀缺性加分: 100.0 / frequency
-                    // if freq is 1 (Singleton), bonus is 100.
-                    // if freq is 100 (Common), bonus is 1.
+                    // 计算稀缺性加分: 1000 / frequency
                     if let Some(&freq) = self.sku_frequency_map.get(&item.product_code) {
                         if freq > 0 {
-                            // 使用简单的整数除法转BigDecimal，或者构造浮点
-                            // 这里为了简单，假设 bonus = 100 / freq (取整)
                             let bonus = 1000 / freq; 
-                            scarcity_score += BigDecimal::from(bonus);
+                            score += bonus;
                         }
                     }
                 }
             }
         }
 
-        (sku_count, amount_sum, scarcity_score)
+        (score, sku_count)
     }
+
 
     /// 消费明细金额（不标记整个发票为已使用）
     pub fn consume_item(&mut self, invoice_id: i64, product_code: &str, amount: &BigDecimal) -> Option<InvoiceItemState> {

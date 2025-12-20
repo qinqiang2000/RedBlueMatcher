@@ -1,22 +1,11 @@
 #!/bin/bash
 
 # Rust 发票匹配触发脚本
-# 用法: ./trigger_rust_match.sh [v1|v2] [销方税号] [购方税号]
-# 或:   ./trigger_rust_match.sh [销方税号] [购方税号] [v1|v2]
+
+set -e
 
 # 脚本所在目录
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# 处理ENV_FILE：如果是相对路径，转换为绝对路径
-if [ -n "$ENV_FILE" ]; then
-    # 如果ENV_FILE不是以/开头（即相对路径），转换为基于脚本目录的绝对路径
-    if [ "${ENV_FILE:0:1}" != "/" ]; then
-        ENV_FILE="$SCRIPT_DIR/$ENV_FILE"
-    fi
-fi
-
-# 设置默认值
-ENV_FILE="${ENV_FILE:-$SCRIPT_DIR/.env.local}"
 
 # 颜色输出
 GREEN='\033[0;32m'
@@ -30,11 +19,119 @@ echo_blue() { echo -e "${BLUE}$1${NC}"; }
 echo_yellow() { echo -e "${YELLOW}$1${NC}"; }
 echo_red() { echo -e "${RED}$1${NC}"; }
 
-# 1. 加载环境配置
-echo_blue "=== 加载环境配置 ==="
+# ========== 帮助信息 ==========
+show_help() {
+    cat << EOF
+Rust 发票匹配触发脚本 - 启动 Rust 服务并触发批量匹配
 
-if [ ! -f "$ENV_FILE" ]; then
-    echo_red "错误: 找不到 $ENV_FILE 文件"
+用法:
+  $0 [OPTIONS] [VERSION]
+
+选项:
+  --env ENV_NAME      指定环境名称，加载 .env.{ENV_NAME} 文件（如: dev, prod）
+  --env-file FILE     直接指定环境配置文件的完整路径
+  -h, --help          显示此帮助信息
+
+位置参数:
+  VERSION             算法版本: v1 (SKU-Centric) 或 v2 (Invoice-Centric，默认)
+
+环境变量:
+  ENV_FILE            环境配置文件路径（优先级低于命令行参数）
+
+示例:
+  # 使用默认环境(.env.local)和默认版本(v2)
+  $0
+
+  # 指定算法版本
+  $0 v1
+  $0 v2
+
+  # 使用命令行参数指定环境
+  $0 --env dev
+  $0 --env prod v1
+  $0 --env-file /path/to/.env.custom v2
+
+  # 使用环境变量指定配置文件
+  ENV_FILE=.env.dev $0
+  ENV_FILE=.env.prod $0 v1
+
+EOF
+    exit 0
+}
+
+# ========== 参数解析 ==========
+
+# 默认值
+CMD_ENV_FILE=""
+ENV_NAME=""
+VERSION="v2"
+
+# 解析命令行参数
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -h|--help)
+            show_help
+            ;;
+        --env)
+            if [ -z "$2" ]; then
+                echo_red "错误: --env 需要指定环境名称"
+                echo_red "使用 --help 查看帮助"
+                exit 1
+            fi
+            ENV_NAME="$2"
+            shift 2
+            ;;
+        --env-file)
+            if [ -z "$2" ]; then
+                echo_red "错误: --env-file 需要指定文件路径"
+                echo_red "使用 --help 查看帮助"
+                exit 1
+            fi
+            CMD_ENV_FILE="$2"
+            shift 2
+            ;;
+        v1|v2)
+            VERSION="$1"
+            shift
+            ;;
+        *)
+            echo_red "错误: 未知参数 '$1'"
+            echo_red "使用 --help 查看帮助"
+            exit 1
+            ;;
+    esac
+done
+
+# ========== 确定环境配置文件 ==========
+
+# 优先级: --env-file > --env > ENV_FILE 环境变量 > 默认值
+if [ -n "$CMD_ENV_FILE" ]; then
+    # 使用 --env-file 指定的文件
+    FINAL_ENV_FILE="$CMD_ENV_FILE"
+elif [ -n "$ENV_NAME" ]; then
+    # 使用 --env 指定的环境名称
+    FINAL_ENV_FILE="$SCRIPT_DIR/.env.$ENV_NAME"
+elif [ -n "$ENV_FILE" ]; then
+    # 使用 ENV_FILE 环境变量
+    # 如果是相对路径，转换为基于当前工作目录的绝对路径
+    if [ "${ENV_FILE:0:1}" != "/" ]; then
+        FINAL_ENV_FILE="$(pwd)/$ENV_FILE"
+    else
+        FINAL_ENV_FILE="$ENV_FILE"
+    fi
+else
+    # 使用默认值
+    FINAL_ENV_FILE="$SCRIPT_DIR/.env.local"
+fi
+
+# ========== 加载环境配置 ==========
+
+echo_blue "=== 加载环境配置 ==="
+echo_green "✓ 加载配置文件: $FINAL_ENV_FILE"
+echo ""
+
+if [ ! -f "$FINAL_ENV_FILE" ]; then
+    echo_red "错误: 找不到 $FINAL_ENV_FILE 文件"
     exit 1
 fi
 
@@ -47,7 +144,7 @@ while IFS='=' read -r key value; do
     # 去除值两边的引号和空格
     value=$(echo "$value" | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")
     export "$key=$value"
-done < "$ENV_FILE"
+done < "$FINAL_ENV_FILE"
 
 # 设置默认值
 SERVER_HOST=${SERVER_HOST:-127.0.0.1}
@@ -55,35 +152,13 @@ SERVER_PORT=${SERVER_PORT:-8089}
 
 echo_green "✓ 数据库: $DB_HOST:$DB_PORT/$DB_NAME"
 echo_green "✓ 服务地址: $SERVER_HOST:$SERVER_PORT"
-echo ""
 
-# 解析命令行参数
-VERSION="v2"  # 默认版本
-
-# 检查参数
-if [ $# -eq 0 ]; then
-    # 无参数，使用默认 v2
-    echo_blue "使用默认配置: Invoice-Centric v2 算法"
-elif [ $# -eq 1 ]; then
-    # 一个参数，必须是版本号
-    if [[ "$1" == "v1" ]] || [[ "$1" == "v2" ]]; then
-        VERSION="$1"
-        if [[ "$1" == "v1" ]]; then
-            echo_blue "使用算法版本: SKU-Centric v1"
-        else
-            echo_blue "使用算法版本: Invoice-Centric v2"
-        fi
-    else
-        echo_red "错误: 参数必须是 'v1' 或 'v2'"
-        echo_red "用法: $0 [v1|v2]"
-        exit 1
-    fi
+# 显示算法版本
+if [[ "$VERSION" == "v1" ]]; then
+    echo_green "✓ 算法版本: SKU-Centric v1"
 else
-    echo_red "错误: 参数过多"
-    echo_red "用法: $0 [v1|v2]"
-    exit 1
+    echo_green "✓ 算法版本: Invoice-Centric v2"
 fi
-
 echo ""
 
 # 2. 停止并重启服务
@@ -120,9 +195,9 @@ cd "$SCRIPT_DIR/tax-redflush-rust"
 # 设置数据库连接
 export DATABASE_URL="postgres://$DB_USER:$DB_PASSWORD@$DB_HOST:$DB_PORT/$DB_NAME"
 
-# 生成带时间戳的日志文件名
+# 生成带数据库名称和时间戳的日志文件名
 LOG_TIMESTAMP=$(date '+%Y-%m-%d_%H-%M-%S')
-LOG_FILE="logs/rust-service-${LOG_TIMESTAMP}.log"
+LOG_FILE="logs/rust-service-${DB_NAME}-${LOG_TIMESTAMP}.log"
 
 # 后台启动服务
 nohup cargo run --release > "$LOG_FILE" 2>&1 &
@@ -214,7 +289,19 @@ echo_blue "=== 清理旧的匹配结果 ==="
 CLEAN_SCRIPT="$SCRIPT_DIR/scripts/clean_results.sh"
 if [ -f "$CLEAN_SCRIPT" ]; then
     echo_yellow "清理所有旧的匹配结果..."
-    echo "yes" | "$CLEAN_SCRIPT" all 2>&1 | grep -E "(删除|错误|✓|✗)" || true
+    echo "DELETE_ALL" | "$CLEAN_SCRIPT" --env-file "$FINAL_ENV_FILE" all 2>&1 | grep -E "(删除|错误|✓|✗)" || true
+
+    # 验证是否已清空
+    REMAINING_COUNT=$(PGPASSWORD="${DB_PASSWORD}" psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" -t -A -c \
+        "SELECT COUNT(*) FROM ${TABLE_MATCH_RESULT};" 2>/dev/null || echo "-1")
+
+    if [ "$REMAINING_COUNT" = "0" ]; then
+        echo_green "✓ 表已清空"
+    elif [ "$REMAINING_COUNT" = "-1" ]; then
+        echo_yellow "⊘ 无法验证清理结果"
+    else
+        echo_yellow "⊘ 表中仍有 $REMAINING_COUNT 条记录（可能取消了清理）"
+    fi
 else
     echo_yellow "⊘ 清理脚本不存在，跳过清理"
 fi
@@ -293,9 +380,12 @@ else
         CSV_BASENAME=$(basename "$CSV_FILE")
         echo_blue "导入: $CSV_BASENAME"
 
+        # 打印导入命令
+        echo_yellow "命令: ./scripts/import_csv_to_db.sh --csv \"$CSV_FILE\" --env-file \"$FINAL_ENV_FILE\""
+
         # 调用导入脚本
         if [ -f "$SCRIPT_DIR/scripts/import_csv_to_db.sh" ]; then
-            "$SCRIPT_DIR/scripts/import_csv_to_db.sh" "$CSV_FILE" "$ENV_FILE" 2>&1 | \
+            "$SCRIPT_DIR/scripts/import_csv_to_db.sh" --csv "$CSV_FILE" --env-file "$FINAL_ENV_FILE" 2>&1 | \
                 grep -E "(导入|Import|records|错误|Error|✓|✗|Before|After|Imported|completed)" || true
         else
             echo_red "✗ 导入脚本不存在: scripts/import_csv_to_db.sh"
