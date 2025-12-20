@@ -11,6 +11,7 @@ Cargo.lock
 
 # experiment directory (temp files)
 experiment/
+export/
 logs/
 
 # 虚拟环境

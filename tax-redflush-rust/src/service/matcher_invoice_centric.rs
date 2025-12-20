@@ -22,10 +22,15 @@ impl InvoiceCentricMatcher {
 
     /// 批量匹配入口
     pub async fn batch_match(&self, bill_ids: &[i64]) -> Result<Vec<MatchStats>, Box<dyn std::error::Error>> {
+        self.batch_match_with_limit(bill_ids, None).await
+    }
+
+    /// 批量匹配入口（带SKU数量限制，用于测试）
+    pub async fn batch_match_with_limit(&self, bill_ids: &[i64], max_skus: Option<usize>) -> Result<Vec<MatchStats>, Box<dyn std::error::Error>> {
         let mut all_stats = Vec::new();
 
         for &bill_id in bill_ids {
-            match self.match_single_bill(bill_id).await {
+            match self.match_single_bill(bill_id, max_skus).await {
                 Ok(stats) => {
                     all_stats.push(stats);
                 }
@@ -40,14 +45,14 @@ impl InvoiceCentricMatcher {
     }
 
     /// 单个单据匹配 - Invoice-Centric算法核心
-    async fn match_single_bill(&self, bill_id: i64) -> Result<MatchStats, Box<dyn std::error::Error>> {
+    async fn match_single_bill(&self, bill_id: i64, max_skus: Option<usize>) -> Result<MatchStats, Box<dyn std::error::Error>> {
         // Phase 1: 获取单据信息
         let bill = queries::get_bill(&self.pool, bill_id).await?;
         let Some(bill) = bill else {
             return Err(format!("Bill {} not found", bill_id).into());
         };
 
-        let bill_items = queries::list_bill_items(&self.pool, bill_id).await?;
+        let mut bill_items = queries::list_bill_items(&self.pool, bill_id).await?;
         if bill_items.is_empty() {
             return Ok(MatchStats {
                 bill_id,
@@ -59,14 +64,23 @@ impl InvoiceCentricMatcher {
             });
         }
 
+        // 应用 max_skus 限制（用于测试）
+        if let Some(limit) = max_skus {
+            if bill_items.len() > limit {
+                bill_items.truncate(limit);
+                tracing::warn!("[Invoice-Centric] Bill {}: 限制到前 {} 个SKU (测试模式)", bill_id, limit);
+            }
+        }
+
         // Phase 2: 构建需求
         let mut requirements = MatchingRequirements::from_bill_items(&bill_items);
         let sku_list = requirements.get_required_skus();
         let total_skus = sku_list.len();
 
         tracing::info!(
-            "[Invoice-Centric] Bill {}: 开始匹配, {} 个SKU",
-            bill_id, total_skus
+            "[Invoice-Centric] Bill {}: 开始匹配, {} 个SKU{}",
+            bill_id, total_skus,
+            if max_skus.is_some() { " (测试模式)" } else { "" }
         );
 
         // Phase 3: 分步分批查询候选发票明细 (优化版)
@@ -145,6 +159,9 @@ while let Some(result) = stream.next().await {
             let available_items = scoring_context.get_available_items(invoice_id);
 
             // 匹配该发票上所有可用的SKU
+            let items_count = available_items.len();
+            let mut matched_in_invoice = 0;
+
             for item in available_items {
                 let required = match requirements.get_remaining(&item.product_code) {
                     Some(r) if *r > BigDecimal::zero() => r.clone(),
@@ -186,8 +203,14 @@ while let Some(result) = stream.next().await {
                 };
 
                 results.push(rec);
+                matched_in_invoice += 1;
                 total_matched_amount += &match_amount;
                 requirements.reduce(&item.product_code, &match_amount);
+            }
+
+            if iteration == 1 || iteration % 100 == 0 {
+                tracing::debug!("[Invoice-Centric] Bill {}: 迭代 {}, 发票 {} 有 {} 个可用明细, 匹配了 {} 个, 累计results: {}",
+                    bill_id, iteration, invoice_id, items_count, matched_in_invoice, results.len());
             }
 
             // 注意：不再标记整个发票为已使用，允许后续迭代继续使用该发票的剩余明细
@@ -222,10 +245,30 @@ while let Some(result) = stream.next().await {
             );
         }
 
+        tracing::info!("[Invoice-Centric] Bill {}: 准备导出 {} 条匹配结果", bill_id, results.len());
+
         if !results.is_empty() {
-            for chunk in results.chunks(1000) {
-                queries::insert_batch(&self.pool, chunk).await?;
+            // 导出到 CSV 文件（绕过数据库插入卡死问题）
+            let csv_filename = format!("match_results_{}.csv", bill_id);
+            let csv_path = std::path::Path::new(&csv_filename).to_path_buf();
+
+            tracing::info!("[Invoice-Centric] Bill {}: 导出到 CSV 文件: {} ({} 条记录)",
+                bill_id, csv_filename, results.len());
+
+            // 直接同步写入，避免 clone 开销
+            match queries::export_to_csv(&results, &csv_path) {
+                Ok(()) => {
+                    tracing::info!("[Invoice-Centric] Bill {}: ✓ CSV 导出成功: {}", bill_id, csv_filename);
+                    tracing::info!("[Invoice-Centric] Bill {}: 请使用导入脚本:", bill_id);
+                    tracing::info!("  ./scripts/import_csv_to_db.sh --csv {} --env dev", csv_filename);
+                }
+                Err(e) => {
+                    tracing::error!("[Invoice-Centric] Bill {}: ✗ CSV 导出失败: {:?}", bill_id, e);
+                    return Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())));
+                }
             }
+        } else {
+            tracing::warn!("[Invoice-Centric] Bill {}: ⚠️ results 为空，没有数据导出!", bill_id);
         }
 
         let stats = MatchStats {

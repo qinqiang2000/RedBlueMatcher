@@ -4,7 +4,7 @@
 匹配统计SQL导出工具
 
 功能：
-1. 从 .env.local 读取数据库配置
+1. 从环境配置文件读取数据库配置
 2. 执行 scripts/匹配统计.sql 中的三个查询
 3. 导出结果到 Excel 文件（3个sheet）
 
@@ -14,11 +14,20 @@
 - python-dotenv: 环境变量管理
 
 使用：
+    # 默认加载 .env 文件
     python scripts/export_matching_stats.py
+
+    # 指定环境名称，加载 .env.{ENV} 文件
+    python scripts/export_matching_stats.py --env local      # 加载 .env.local
+    python scripts/export_matching_stats.py --env prod       # 加载 .env.prod
+
+    # 直接指定环境文件路径
+    python scripts/export_matching_stats.py --env-file /path/to/.env.custom
 """
 
 import os
 import sys
+import argparse
 import psycopg2
 import xlsxwriter
 from datetime import datetime
@@ -274,8 +283,50 @@ def validate_columns(cursor, expected_count: int, query_name: str):
         )
 
 
+def parse_args():
+    """解析命令行参数"""
+    parser = argparse.ArgumentParser(
+        description='匹配统计SQL导出工具 - 导出匹配统计数据到Excel',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+示例：
+  # 默认加载 .env 文件
+  python scripts/export_matching_stats.py
+
+  # 加载 .env.local 文件
+  python scripts/export_matching_stats.py --env local
+
+  # 加载 .env.prod 文件
+  python scripts/export_matching_stats.py --env prod
+
+  # 通过环境变量指定（不推荐，建议使用 --env 参数）
+  ENV=local python scripts/export_matching_stats.py
+        """
+    )
+
+    parser.add_argument(
+        '--env',
+        type=str,
+        default=None,
+        help='环境名称，用于加载 .env.{ENV} 文件（如: local, prod, test）'
+    )
+
+    parser.add_argument(
+        '--env-file',
+        type=str,
+        default=None,
+        dest='env_file',
+        help='直接指定环境配置文件的完整路径'
+    )
+
+    return parser.parse_args()
+
+
 def main():
     """主函数"""
+    # 解析命令行参数
+    args = parse_args()
+
     print("=" * 60)
     print("匹配统计SQL导出工具")
     print("=" * 60)
@@ -283,12 +334,35 @@ def main():
     # 1. 加载配置
     print("\n[1/5] 加载配置...")
     try:
-        load_config()
+        # 如果指定了 env-file，手动加载该文件
+        if args.env_file:
+            if not os.path.exists(args.env_file):
+                raise FileNotFoundError(f"指定的配置文件不存在: {args.env_file}")
+
+            # 手动加载指定的环境文件
+            from dotenv import load_dotenv
+            load_dotenv(args.env_file, override=True)
+            print(f"已加载配置文件: {args.env_file}")
+
+            # 调用 load_config() 但不传递参数，让它使用已加载的环境变量
+            # 需要先重置配置状态，避免重复加载
+            from config import reset_config
+            reset_config()
+            load_config()
+        else:
+            # 使用 --env 参数或默认配置
+            load_config(env=args.env)
+
         db_config = get_db_config()
         print(f"✓ 配置加载成功")
     except Exception as e:
         print(f"✗ 配置加载失败: {e}")
-        print("请检查 .env.local 文件是否存在且配置正确")
+        if args.env:
+            print(f"请检查 .env.{args.env} 文件是否存在且配置正确")
+        elif args.env_file:
+            print(f"请检查配置文件 {args.env_file} 是否正确")
+        else:
+            print("请检查 .env 文件是否存在且配置正确，或使用 --env 参数指定环境")
         sys.exit(1)
 
     # 2. 解析SQL文件

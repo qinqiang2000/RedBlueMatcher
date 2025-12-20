@@ -6,7 +6,17 @@
 
 # 脚本所在目录
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ENV_FILE="$SCRIPT_DIR/.env.local"
+
+# 处理ENV_FILE：如果是相对路径，转换为绝对路径
+if [ -n "$ENV_FILE" ]; then
+    # 如果ENV_FILE不是以/开头（即相对路径），转换为基于脚本目录的绝对路径
+    if [ "${ENV_FILE:0:1}" != "/" ]; then
+        ENV_FILE="$SCRIPT_DIR/$ENV_FILE"
+    fi
+fi
+
+# 设置默认值
+ENV_FILE="${ENV_FILE:-$SCRIPT_DIR/.env.local}"
 
 # 颜色输出
 GREEN='\033[0;32m'
@@ -49,47 +59,28 @@ echo ""
 
 # 解析命令行参数
 VERSION="v2"  # 默认版本
-SELLER="91341103MA2TWC9B1Q"  # 默认销方税号
-BUYER="9134110275298062X0"   # 默认购方税号
 
-# 检查参数数量和类型
+# 检查参数
 if [ $# -eq 0 ]; then
-    # 无参数，使用所有默认值
-    echo_blue "使用默认配置: v2 算法, 默认税号"
+    # 无参数，使用默认 v2
+    echo_blue "使用默认配置: Invoice-Centric v2 算法"
 elif [ $# -eq 1 ]; then
-    # 一个参数，可能是版本号
+    # 一个参数，必须是版本号
     if [[ "$1" == "v1" ]] || [[ "$1" == "v2" ]]; then
         VERSION="$1"
-        echo_blue "使用版本: $VERSION, 默认税号"
+        if [[ "$1" == "v1" ]]; then
+            echo_blue "使用算法版本: SKU-Centric v1"
+        else
+            echo_blue "使用算法版本: Invoice-Centric v2"
+        fi
     else
-        echo_red "错误: 单个参数必须是 'v1' 或 'v2'"
-        echo_red "用法: $0 [v1|v2] [销方税号] [购方税号]"
-        exit 1
-    fi
-elif [ $# -eq 2 ]; then
-    # 两个参数，视为税号
-    SELLER="$1"
-    BUYER="$2"
-    echo_blue "使用版本: v2, 自定义税号"
-elif [ $# -eq 3 ]; then
-    # 三个参数
-    # 检查第一个参数是否是版本
-    if [[ "$1" == "v1" ]] || [[ "$1" == "v2" ]]; then
-        VERSION="$1"
-        SELLER="$2"
-        BUYER="$3"
-    # 检查第三个参数是否是版本
-    elif [[ "$3" == "v1" ]] || [[ "$3" == "v2" ]]; then
-        SELLER="$1"
-        BUYER="$2"
-        VERSION="$3"
-    else
-        echo_red "错误: 版本参数必须是 'v1' 或 'v2'"
+        echo_red "错误: 参数必须是 'v1' 或 'v2'"
+        echo_red "用法: $0 [v1|v2]"
         exit 1
     fi
 else
     echo_red "错误: 参数过多"
-    echo_red "用法: $0 [v1|v2] [销方税号] [购方税号]"
+    echo_red "用法: $0 [v1|v2]"
     exit 1
 fi
 
@@ -173,20 +164,13 @@ echo ""
 # 3. 查询待匹配单据
 echo_blue "=== 查询待匹配单据 ==="
 
-# 默认税号（已在上面通过命令行参数解析设置）
-# SELLER=${1:-"91341103MA2TWC9B1Q"}
-# BUYER=${2:-"9134110275298062X0"}
-
-# 生成 SQL 查询
+# 生成 SQL 查询 - 直接查询所有单据 IDs
 cat > /tmp/query_billids_rust.sql <<EOF
 SELECT DISTINCT fid
 FROM ${TABLE_ORIGINAL_BILL}
-WHERE fsalertaxno = '$SELLER'
-  AND fbuyertaxno = '$BUYER'
 ORDER BY fid;
 EOF
 
-# 执行查询
 echo_blue "执行 SQL 查询..."
 PGPASSWORD="${DB_PASSWORD}" psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" \
     -t -A -F',' -f /tmp/query_billids_rust.sql > /tmp/billids_rust.txt 2>/dev/null
@@ -200,50 +184,68 @@ fi
 BILL_IDS=$(cat /tmp/billids_rust.txt | tr '\n' ',' | sed 's/,$//' | sed 's/^/\[/' | sed 's/$/\]/')
 
 if [ "$BILL_IDS" == "[]" ] || [ -z "$BILL_IDS" ]; then
-    echo_red "✗ 未找到匹配的单据"
+    echo_red "✗ 未找到待匹配单据"
     exit 1
 fi
 
-echo_green "✓ 找到的 billIds: $BILL_IDS"
+# 计算单据数量
+BILL_COUNT=$(cat /tmp/billids_rust.txt | wc -l | tr -d ' ')
+echo_green "✓ 找到 $BILL_COUNT 个待匹配单据"
+
+# 显示税号对统计信息
+echo_blue "单据税号对统计:"
+PGPASSWORD="${DB_PASSWORD}" psql -h "$DB_HOST" -U "$DB_USER" -d "$DB_NAME" \
+    -t -A -F'|' -c "
+SELECT
+    fsalertaxno,
+    fbuyertaxno,
+    COUNT(*) as count
+FROM ${TABLE_ORIGINAL_BILL}
+GROUP BY fsalertaxno, fbuyertaxno
+ORDER BY COUNT(*) DESC;
+" | while IFS='|' read -r seller buyer count; do
+    echo_yellow "  销方: $seller | 购方: $buyer | 单据数: $count"
+done
+
 echo ""
 
-# 4. 清理旧的匹配结果（避免重复）
+# 4. 清理旧的匹配结果
 echo_blue "=== 清理旧的匹配结果 ==="
-
-# 检查清理脚本是否存在
 CLEAN_SCRIPT="$SCRIPT_DIR/scripts/clean_results.sh"
-if [ ! -f "$CLEAN_SCRIPT" ]; then
-    echo_red "✗ 清理脚本不存在: $CLEAN_SCRIPT"
-    exit 1
+if [ -f "$CLEAN_SCRIPT" ]; then
+    echo_yellow "清理所有旧的匹配结果..."
+    echo "yes" | "$CLEAN_SCRIPT" all 2>&1 | grep -E "(删除|错误|✓|✗)" || true
+else
+    echo_yellow "⊘ 清理脚本不存在，跳过清理"
 fi
-
-# 调用清理脚本（非交互模式）
-echo_yellow "调用清理脚本: $CLEAN_SCRIPT tax $SELLER $BUYER"
-echo "yes" | "$CLEAN_SCRIPT" tax "$SELLER" "$BUYER" 2>&1 | grep -E "(删除|错误|✓|✗)" || true
 echo ""
 
 # 5. 触发匹配
 if [[ "$VERSION" == "v1" ]]; then
     echo_blue "=== 触发批量匹配 (SKU-Centric v1) ==="
     ENDPOINT="/api/match/batch"
-    ALGORITHM="SKU-Centric"
+    ALGORITHM="SKU-Centric v1"
 else
     echo_blue "=== 触发批量匹配 (Invoice-Centric v2) ==="
     ENDPOINT="/api/match/batch/v2"
-    ALGORITHM="Invoice-Centric"
+    ALGORITHM="Invoice-Centric v2"
 fi
-echo_blue "请求 URL: http://$SERVER_HOST:$SERVER_PORT$ENDPOINT"
-echo_blue "算法版本: $ALGORITHM"
-echo_blue "销方税号: $SELLER"
-echo_blue "购方税号: $BUYER"
+
+echo_blue "请求信息:"
+echo_yellow "  URL: http://$SERVER_HOST:$SERVER_PORT$ENDPOINT"
+echo_yellow "  算法: $ALGORITHM"
+echo_yellow "  单据数: $BILL_COUNT"
 echo ""
 
-# 发送请求（带超时）
+# 发送请求（带超时 - 设置为30分钟以应对大规模匹配）
 echo_yellow "匹配进行中，请等待..."
 echo_yellow "实时日志已在新终端窗口中打开"
 echo ""
 
-RESPONSE=$(curl -s --max-time 300 -X POST "http://$SERVER_HOST:$SERVER_PORT$ENDPOINT" \
+# 记录开始时间（用于后续查找CSV文件）
+START_TIMESTAMP=$(date +%s)
+
+RESPONSE=$(curl -s --max-time 1800 -X POST "http://$SERVER_HOST:$SERVER_PORT$ENDPOINT" \
     -H "Content-Type: application/json" \
     -d "{\"bill_ids\": $BILL_IDS}")
 
@@ -251,18 +253,55 @@ CURL_EXIT=$?
 
 # 显示结果
 echo ""
+echo_green "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 if [ $CURL_EXIT -eq 0 ]; then
     echo_green "✓ 匹配完成"
-    echo_green "服务响应: $RESPONSE"
+    echo ""
+    echo_green "服务响应:"
+    echo "$RESPONSE" | python3 -m json.tool 2>/dev/null || echo "$RESPONSE"
 else
-    echo_red "✗ 请求失败（退出码: $CURL_EXIT）"
+    echo_red "✗ 匹配失败（退出码: $CURL_EXIT）"
     if [ $CURL_EXIT -eq 28 ]; then
         echo_yellow "超时说明: 匹配可能仍在后台进行，请查看日志确认"
     fi
 fi
+echo_green "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 echo ""
 echo_green "=== 完成 ==="
 echo_yellow "日志文件: tax-redflush-rust/$LOG_FILE"
 echo_yellow "实时日志正在新终端窗口中显示"
 echo_yellow "如需手动查看: tail -f tax-redflush-rust/$LOG_FILE"
+
+# ========== 自动导入 CSV ==========
+echo ""
+echo_blue "=== 自动导入 CSV 到数据库 ==="
+
+# 查找在脚本开始后生成的 CSV 文件（使用 -newermt 选项和开始时间戳）
+# 注意：使用 -mmin -60 查找最近60分钟内修改的文件，更可靠
+CSV_FILES=$(find "$SCRIPT_DIR/tax-redflush-rust" -maxdepth 1 -name "match_results_*.csv" -type f -mmin -60 2>/dev/null)
+
+if [ -z "$CSV_FILES" ]; then
+    echo_yellow "⊘ 未找到本次生成的 CSV 文件，跳过导入"
+    echo_yellow "提示：可以手动导入 CSV 文件："
+    echo_yellow "  ./scripts/import_csv_to_db.sh --csv tax-redflush-rust/match_results_*.csv --env-file $ENV_FILE"
+else
+    CSV_COUNT=$(echo "$CSV_FILES" | wc -l | tr -d ' ')
+    echo_green "✓ 找到 $CSV_COUNT 个 CSV 文件"
+
+    for CSV_FILE in $CSV_FILES; do
+        CSV_BASENAME=$(basename "$CSV_FILE")
+        echo_blue "导入: $CSV_BASENAME"
+
+        # 调用导入脚本
+        if [ -f "$SCRIPT_DIR/scripts/import_csv_to_db.sh" ]; then
+            "$SCRIPT_DIR/scripts/import_csv_to_db.sh" "$CSV_FILE" "$ENV_FILE" 2>&1 | \
+                grep -E "(导入|Import|records|错误|Error|✓|✗|Before|After|Imported|completed)" || true
+        else
+            echo_red "✗ 导入脚本不存在: scripts/import_csv_to_db.sh"
+        fi
+        echo ""
+    done
+
+    echo_green "✓ CSV 导入完成"
+fi

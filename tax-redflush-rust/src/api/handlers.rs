@@ -12,6 +12,8 @@ use std::sync::Arc;
 #[derive(Debug, Deserialize)]
 pub struct BatchMatchRequest {
     pub bill_ids: Vec<i64>,
+    /// 可选: 限制处理的SKU数量 (用于测试)
+    pub max_skus: Option<usize>,
 }
 
 /// 响应体
@@ -62,7 +64,7 @@ pub async fn batch_match_invoice_centric(
     State(matcher): State<Arc<InvoiceCentricMatcher>>,
     Json(req): Json<BatchMatchRequest>,
 ) -> Response {
-    match matcher.batch_match(&req.bill_ids).await {
+    match matcher.batch_match_with_limit(&req.bill_ids, req.max_skus).await {
         Ok(stats) => {
             let total_invoices: usize = stats.iter().map(|s| s.invoices_used).sum();
             let total_skus: usize = stats.iter().map(|s| s.matched_skus).sum();

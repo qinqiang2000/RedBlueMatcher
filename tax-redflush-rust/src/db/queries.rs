@@ -1,5 +1,7 @@
 use crate::models::{CandidateStat, MatchBill1201, MatchBillItem1201, MatchResult1201, MatchedInvoiceItem};
 use sqlx::PgPool;
+use std::path::Path;
+use bigdecimal::BigDecimal;
 
 /// 查询单据主表
 pub async fn get_bill(
@@ -135,6 +137,9 @@ pub async fn insert_batch(
         return Ok(());
     }
 
+    tracing::debug!("开始构建批量插入语句, {} 条记录", results.len());
+    let start_time = std::time::Instant::now();
+
     // 构建批量插入语句
     let mut query_builder = sqlx::QueryBuilder::new(
         "INSERT INTO t_sim_match_result_1201 (
@@ -164,6 +169,72 @@ pub async fn insert_batch(
             .push_bind(result.fmatchtime);
     });
 
-    query_builder.build().execute(pool).await?;
+    let build_elapsed = start_time.elapsed();
+    tracing::debug!("SQL构建完成, 耗时: {:?}", build_elapsed);
+
+    tracing::debug!("开始执行INSERT操作...");
+    let execute_start = std::time::Instant::now();
+
+    // 添加超时控制: 30秒
+    let execute_result = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        query_builder.build().execute(pool)
+    ).await;
+
+    match execute_result {
+        Ok(Ok(result)) => {
+            let execute_elapsed = execute_start.elapsed();
+            tracing::info!("✓ INSERT执行成功, 影响 {} 行, 耗时: {:?}", result.rows_affected(), execute_elapsed);
+            Ok(())
+        },
+        Ok(Err(e)) => {
+            let execute_elapsed = execute_start.elapsed();
+            tracing::error!("✗ INSERT执行失败, 耗时: {:?}, 错误: {:?}", execute_elapsed, e);
+            Err(e)
+        },
+        Err(_) => {
+            tracing::error!("✗ INSERT操作超时 (>30秒)!");
+            Err(sqlx::Error::PoolTimedOut)
+        }
+    }
+}
+
+/// 将 Option<BigDecimal> 转换为 CSV 字符串
+fn option_to_csv(val: &Option<BigDecimal>) -> String {
+    val.as_ref().map(|v| v.to_string()).unwrap_or_default()
+}
+
+/// 导出匹配结果到 CSV 文件（PostgreSQL COPY 兼容格式）
+pub fn export_to_csv(
+    results: &[MatchResult1201],
+    output_path: &Path,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    use csv::Writer;
+    use std::fs::File;
+
+    let file = File::create(output_path)?;
+    let mut writer = Writer::from_writer(file);
+
+    for result in results {
+        writer.write_record(&[
+            result.fbillid.to_string(),
+            result.fbuyertaxno.clone(),
+            result.fsalertaxno.clone(),
+            result.fspbm.clone(),
+            result.finvoiceid.to_string(),
+            result.finvoiceitemid.to_string(),
+            result.fnum.to_string(),
+            result.fbillamount.to_string(),
+            result.finvoiceamount.to_string(),
+            result.fmatchamount.to_string(),
+            option_to_csv(&result.fbillunitprice),
+            option_to_csv(&result.fbillqty),
+            option_to_csv(&result.finvoiceunitprice),
+            option_to_csv(&result.finvoiceqty),
+            result.fmatchtime.to_rfc3339(),
+        ])?;
+    }
+
+    writer.flush()?;
     Ok(())
 }
