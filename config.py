@@ -112,16 +112,18 @@ _full_row_threshold: float = 0.1  # 整行红冲阈值（默认0.1元）
 _config_loaded: bool = False
 
 
-def load_config(env: Optional[str] = None) -> None:
+def load_config(env: Optional[str] = None, env_file: Optional[str] = None) -> None:
     """
     加载配置文件
 
     优先级:
-    1. .env.{ENV} (如果 ENV 环境变量存在)
-    2. .env (默认)
+    1. env_file (如果提供)
+    2. .env.{ENV} (如果 ENV 非空)
+    3. .env (默认)
 
     Args:
         env: 可选的环境名称（dev/test/prod），如果不提供则从 ENV 环境变量读取
+        env_file: 可选的配置文件路径，优先级最高
 
     Raises:
         ValueError: 配置缺少必需字段或格式错误
@@ -134,11 +136,18 @@ def load_config(env: Optional[str] = None) -> None:
         return
 
     # 确定环境
-    if env is None:
+    if env is None and env_file is None:
         env = os.getenv('ENV', None)
 
     # 加载配置文件
-    if env:
+    if env_file:
+        if os.path.exists(env_file):
+            load_dotenv(env_file, override=True)
+            print(f"已加载配置文件: {env_file}")
+            # 从文件路径中尝试推导 env 名称（可选）
+        else:
+            raise FileNotFoundError(f"配置文件 {env_file} 不存在")
+    elif env:
         env_file = f".env.{env}"
         if os.path.exists(env_file):
             load_dotenv(env_file, override=True)

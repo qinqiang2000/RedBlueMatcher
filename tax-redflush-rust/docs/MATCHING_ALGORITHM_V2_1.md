@@ -48,6 +48,8 @@
 
 这是一个贪心迭代过程。只要需求未满足，就不断循环。
 
+> 更详细的介绍请参考《ITERATIVE_MATCHING_EXPLAINED.md》
+
 **伪代码 (Pseudocode)**:
 
 ```python

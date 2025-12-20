@@ -338,14 +338,24 @@ impl InvoiceScoringContext {
 
         let mut sku_count = 0i64;
         let mut score: i64 = 0;
+        
+        // 检查是否整张发票都能被红冲 (Full Flush)
+        // 条件：发票上所有剩余金额 > 0 的明细，都能找到需求，且需求量 >= 剩余量 (即会被耗尽)
+        let mut is_full_flush = true;
+        let mut has_valid_items = false; // 确保至少有一个有效明细
 
         for item in items {
+            // 忽略已经耗尽的明细
             if item.remaining_amount <= BigDecimal::from(0) {
                 continue;
             }
+            
+            has_valid_items = true;
 
+            // 检查该明细是否有需求
             if let Some(required) = requirements.get_remaining(&item.product_code) {
                 if *required > BigDecimal::from(0) {
+                    // 有需求，累加常规分数
                     sku_count += 1;
                     let available = if item.remaining_amount < *required {
                         &item.remaining_amount
@@ -354,21 +364,64 @@ impl InvoiceScoringContext {
                     };
                     
                     // 整数化: available * 100
-                    // 注意：这里可能会有精度截断，但作为评分标准通常足够
                     if let Some(cent_val) = (available * BigDecimal::from(100)).to_i64() {
                         score += cent_val;
                     }
 
-                    // 计算稀缺性加分: 1000 / frequency
-                    // !IMPORTANT: 因为金额扩大了100倍(分)，稀缺性加分也要乘 100 以保持权重比例一致！
+                    // 稀缺性加分
                     if let Some(&freq) = self.sku_frequency_map.get(&item.product_code) {
                         if freq > 0 {
                             let bonus = (1000 / freq) * 100; 
                             score += bonus;
                         }
                     }
+                    
+                    // 关键检查：是否能被耗尽？
+                    // 如果 需求量 < 剩余量，说明没法耗尽这条明细，不满足 Full Flush
+                    if *required < item.remaining_amount {
+                        is_full_flush = false;
+                    }
+                } else {
+                    // 找到了需求记录但需求量为0 (实际上已被满足)，这条明细无法被消耗 -> 破坏 Full Flush
+                     is_full_flush = false;
                 }
+            } else {
+                // 根本没有需求 -> 破坏 Full Flush
+                is_full_flush = false;
             }
+        }
+
+        if !has_valid_items {
+            return (0, 0);
+        }
+
+        // Apply Full Flush Bonus
+        // 策略 V3: 区分 "完美红冲" (Perfect Full Flush) 和 "子集红冲" (Subset Full Flush)
+        // 1. 完美红冲 (Inv == Req): 既清空发票又清空需求。这是最优解，给予巨大奖励 (50M)。
+        // 2. 子集红冲 (Inv < Req): 清空发票但需求未满。这会导致碎片化 (需要更多发票)。
+        //    给予较小奖励 (20%) 作为 Tie-breaker，但不要压倒大金额的非整单匹配。
+        
+        let mut is_perfect_flush = is_full_flush;
+        
+        // 再次遍历检查是否完美匹配 (前提是已满足 Full Flush: Req >= Item)
+        if is_full_flush {
+           for item in items {
+                if item.remaining_amount <= BigDecimal::from(0) { continue; }
+                if let Some(required) = requirements.get_remaining(&item.product_code) {
+                    // 如果有任何一个明细 需求 > 发票，这就不是完美匹配 (是子集匹配)
+                    // (由于 is_full_flush 保证了 required >= item，所以这里只需判不等)
+                    if *required > item.remaining_amount {
+                        is_perfect_flush = false;
+                        break;
+                    }
+                }
+           }
+        }
+
+        if is_perfect_flush && has_valid_items {
+            score += 50_000_000;
+        } else if is_full_flush {
+            score += score / 5; // 20% bonus for subset flush
         }
 
         (score, sku_count)

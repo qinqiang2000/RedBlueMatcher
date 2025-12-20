@@ -1,7 +1,5 @@
-output/
 .DS_Store
 .vscode/
-# logs
 __pycache__/
 *.log
 
@@ -13,6 +11,9 @@ Cargo.lock
 experiment/
 export/
 logs/
+output/
+logs
+
 
 # 虚拟环境
 venv/

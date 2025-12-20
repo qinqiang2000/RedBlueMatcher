@@ -437,3 +437,17 @@ else
 
     echo_green "✓ CSV 导入完成"
 fi
+
+echo ""
+echo_blue "=== 计算【整张红冲的行数比例】 ==="
+if [ -f "$SCRIPT_DIR/venv/bin/python" ]; then
+    PYTHON_CMD="$SCRIPT_DIR/venv/bin/python"
+else
+    PYTHON_CMD="python3"
+fi
+
+if [ -f "$SCRIPT_DIR/scripts/calculate_average_ratio.py" ]; then
+    "$PYTHON_CMD" "$SCRIPT_DIR/scripts/calculate_average_ratio.py" --env-file "$FINAL_ENV_FILE"
+else
+    echo_yellow "⊘ 统计脚本不存在: scripts/calculate_average_ratio.py"
+fi
