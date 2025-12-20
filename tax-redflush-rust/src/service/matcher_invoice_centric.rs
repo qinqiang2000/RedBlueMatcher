@@ -61,6 +61,7 @@ impl InvoiceCentricMatcher {
                 invoices_used: 0,
                 total_matched_amount: BigDecimal::zero(),
                 total_candidate_invoices: 0,
+                output_file: None,
             });
         }
 
@@ -283,6 +284,12 @@ while let Some(result) = stream.next().await {
             invoices_used,
             total_matched_amount,
             total_candidate_invoices,
+            // 记录生成的 CSV 文件名，供外部脚本使用
+            output_file: if !results.is_empty() {
+                Some(format!("match_results_{}.csv", bill_id))
+            } else {
+                None
+            },
         };
 
         tracing::info!(
