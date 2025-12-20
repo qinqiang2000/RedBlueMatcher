@@ -169,14 +169,14 @@ if curl -s "http://$SERVER_HOST:$SERVER_PORT/health" > /dev/null 2>&1; then
     echo_yellow "检测到服务正在运行，正在停止..."
 
     # 查找进程并停止
-    PIDS=$(pgrep -f "tax-redflush-rust|target.*(release|debug).tax-redflush-rust")
+    PIDS=$(pgrep -f "tax-redflush-rust|target.*(release|debug).tax-redflush-rust" || true)
     if [ -n "$PIDS" ]; then
         echo_yellow "找到进程: $PIDS"
         kill $PIDS 2>/dev/null || true
         sleep 2
 
         # 强制杀死如果还在运行
-        PIDS=$(pgrep -f "tax-redflush-rust|target.*(release|debug).tax-redflush-rust")
+        PIDS=$(pgrep -f "tax-redflush-rust|target.*(release|debug).tax-redflush-rust" || true)
         if [ -n "$PIDS" ]; then
             echo_yellow "强制停止进程..."
             kill -9 $PIDS 2>/dev/null || true
