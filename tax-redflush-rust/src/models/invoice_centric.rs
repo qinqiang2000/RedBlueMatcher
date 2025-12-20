@@ -360,9 +360,10 @@ impl InvoiceScoringContext {
                     }
 
                     // 计算稀缺性加分: 1000 / frequency
+                    // !IMPORTANT: 因为金额扩大了100倍(分)，稀缺性加分也要乘 100 以保持权重比例一致！
                     if let Some(&freq) = self.sku_frequency_map.get(&item.product_code) {
                         if freq > 0 {
-                            let bonus = 1000 / freq; 
+                            let bonus = (1000 / freq) * 100; 
                             score += bonus;
                         }
                     }

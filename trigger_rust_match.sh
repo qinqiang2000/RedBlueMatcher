@@ -305,6 +305,12 @@ if [ -f "$CLEAN_SCRIPT" ]; then
 else
     echo_yellow "⊘ 清理脚本不存在，跳过清理"
 fi
+
+# 清理旧的 CSV 结果文件 (防止导入上次运行的残留文件)
+echo_yellow "清理旧的 CSV 文件..."
+rm -f "$SCRIPT_DIR/tax-redflush-rust/match_results_"*.csv
+echo_green "✓ 旧 CSV 文件已清理"
+
 echo ""
 
 # 5. 触发匹配
@@ -364,9 +370,18 @@ echo_yellow "如需手动查看: tail -f tax-redflush-rust/$LOG_FILE"
 echo ""
 echo_blue "=== 自动导入 CSV 到数据库 ==="
 
-# 查找在脚本开始后生成的 CSV 文件（使用 -newermt 选项和开始时间戳）
-# 注意：使用 -mmin -60 查找最近60分钟内修改的文件，更可靠
-CSV_FILES=$(find "$SCRIPT_DIR/tax-redflush-rust" -maxdepth 1 -name "match_results_*.csv" -type f -mmin -60 2>/dev/null)
+# 从日志中提取精确的 CSV 文件名
+# 日志格式: ... 导出到 CSV 文件: match_results_2358372050940441600.csv (622124 条记录)
+CSV_FILES=$(grep "导出到 CSV 文件:" "$FULL_LOG_PATH" | sed -n 's/.*导出到 CSV 文件: \(match_results_[0-9]*\.csv\).*/\1/p' | sort | uniq)
+
+# 转换为完整路径
+if [ -n "$CSV_FILES" ]; then
+    CSV_FILES_FULL=""
+    for file in $CSV_FILES; do
+        CSV_FILES_FULL="$CSV_FILES_FULL $SCRIPT_DIR/tax-redflush-rust/$file"
+    done
+    CSV_FILES="$CSV_FILES_FULL"
+fi
 
 if [ -z "$CSV_FILES" ]; then
     echo_yellow "⊘ 未找到本次生成的 CSV 文件，跳过导入"
