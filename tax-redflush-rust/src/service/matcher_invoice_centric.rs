@@ -255,7 +255,13 @@ while let Some(result) = stream.next().await {
 
         if !results.is_empty() {
             // 导出到 CSV 文件（绕过数据库插入卡死问题）
-            let csv_filename = format!("match_results_{}.csv", bill_id);
+            // 确保 logs 目录存在
+            let logs_dir = std::path::Path::new("logs");
+            if !logs_dir.exists() {
+                let _ = std::fs::create_dir_all(logs_dir);
+            }
+
+            let csv_filename = format!("logs/match_results_{}.csv", bill_id);
             let csv_path = std::path::Path::new(&csv_filename).to_path_buf();
 
             tracing::info!("[Invoice-Centric] Bill {}: 导出到 CSV 文件: {} ({} 条记录)",
@@ -286,7 +292,7 @@ while let Some(result) = stream.next().await {
             total_candidate_invoices,
             // 记录生成的 CSV 文件名，供外部脚本使用
             output_file: if !results.is_empty() {
-                Some(format!("match_results_{}.csv", bill_id))
+                Some(format!("logs/match_results_{}.csv", bill_id))
             } else {
                 None
             },

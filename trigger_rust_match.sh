@@ -308,7 +308,7 @@ fi
 
 # 清理旧的 CSV 结果文件 (防止导入上次运行的残留文件)
 echo_yellow "清理旧的 CSV 文件..."
-rm -f "$SCRIPT_DIR/tax-redflush-rust/match_results_"*.csv
+rm -f "$SCRIPT_DIR/tax-redflush-rust/logs/match_results_"*.csv
 echo_green "✓ 旧 CSV 文件已清理"
 
 echo ""
@@ -371,7 +371,7 @@ echo ""
 echo_blue "=== 自动导入 CSV 到数据库 ==="
 
 # 从 Rust 服务响应中解析 CSV 文件名 (比解析日志更稳健)
-# 响应结构: { "stats": [ { "output_file": "match_results_xxx.csv", ... } ] }
+# 响应结构: { "stats": [ { "output_file": "logs/match_results_xxx.csv", ... } ] }
 if [ -n "$RESPONSE" ]; then
     # 使用 Python 解析 JSON 获取 output_file 字段
     CSV_FILES_BASENAME=$(echo "$RESPONSE" | python3 -c "
@@ -395,7 +395,8 @@ except Exception as e:
         echo_green "✓ 从 API 响应中获取 CSV 文件名: $(echo $CSV_FILES_BASENAME | tr '\n' ' ')"
     else
          echo_yellow "⊘ API 响应中未包含 output_file，尝试回退到日志解析..."
-         CSV_FILES=$(grep "导出到 CSV 文件:" "$FULL_LOG_PATH" | sed -n 's/.*导出到 CSV 文件: \(match_results_[0-9]*\.csv\).*/\1/p' | sort | uniq)
+         # 更新正则以匹配 logs/ 路径
+         CSV_FILES=$(grep "导出到 CSV 文件:" "$FULL_LOG_PATH" | sed -n 's/.*导出到 CSV 文件: \(.*match_results_[0-9]*\.csv\).*/\1/p' | sort | uniq)
          if [ -n "$CSV_FILES" ]; then
             CSV_FILES_FULL=""
             for file in $CSV_FILES; do
