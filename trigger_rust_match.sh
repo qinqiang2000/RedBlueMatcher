@@ -307,9 +307,9 @@ else
 fi
 
 # 清理旧的 CSV 结果文件 (防止导入上次运行的残留文件)
-echo_yellow "清理旧的 CSV 文件..."
-rm -f "$SCRIPT_DIR/tax-redflush-rust/logs/match_results_"*.csv
-echo_green "✓ 旧 CSV 文件已清理"
+# echo_yellow "清理旧的 CSV 文件..."
+# rm -f "$SCRIPT_DIR/tax-redflush-rust/logs/match_results_"*.csv
+# echo_green "✓ 旧 CSV 文件已清理"
 
 echo ""
 
