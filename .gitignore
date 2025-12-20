@@ -12,7 +12,7 @@ Cargo.lock
 # experiment directory (temp files)
 experiment/
 export/
-# logs/
+logs/
 
 # 虚拟环境
 venv/

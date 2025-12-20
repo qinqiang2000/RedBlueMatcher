@@ -370,17 +370,43 @@ echo_yellow "如需手动查看: tail -f tax-redflush-rust/$LOG_FILE"
 echo ""
 echo_blue "=== 自动导入 CSV 到数据库 ==="
 
-# 从日志中提取精确的 CSV 文件名
-# 日志格式: ... 导出到 CSV 文件: match_results_2358372050940441600.csv (622124 条记录)
-CSV_FILES=$(grep "导出到 CSV 文件:" "$FULL_LOG_PATH" | sed -n 's/.*导出到 CSV 文件: \(match_results_[0-9]*\.csv\).*/\1/p' | sort | uniq)
-
-# 转换为完整路径
-if [ -n "$CSV_FILES" ]; then
-    CSV_FILES_FULL=""
-    for file in $CSV_FILES; do
-        CSV_FILES_FULL="$CSV_FILES_FULL $SCRIPT_DIR/tax-redflush-rust/$file"
-    done
-    CSV_FILES="$CSV_FILES_FULL"
+# 从 Rust 服务响应中解析 CSV 文件名 (比解析日志更稳健)
+# 响应结构: { "stats": [ { "output_file": "match_results_xxx.csv", ... } ] }
+if [ -n "$RESPONSE" ]; then
+    # 使用 Python 解析 JSON 获取 output_file 字段
+    CSV_FILES_BASENAME=$(echo "$RESPONSE" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    stats = data.get('stats', [])
+    for s in stats:
+        if s.get('output_file'):
+            print(s['output_file'])
+except Exception as e:
+    pass
+")
+    
+    if [ -n "$CSV_FILES_BASENAME" ]; then
+        CSV_FILES_FULL=""
+        for file in $CSV_FILES_BASENAME; do
+            CSV_FILES_FULL="$CSV_FILES_FULL $SCRIPT_DIR/tax-redflush-rust/$file"
+        done
+        CSV_FILES="$CSV_FILES_FULL"
+        echo_green "✓ 从 API 响应中获取 CSV 文件名: $(echo $CSV_FILES_BASENAME | tr '\n' ' ')"
+    else
+         echo_yellow "⊘ API 响应中未包含 output_file，尝试回退到日志解析..."
+         CSV_FILES=$(grep "导出到 CSV 文件:" "$FULL_LOG_PATH" | sed -n 's/.*导出到 CSV 文件: \(match_results_[0-9]*\.csv\).*/\1/p' | sort | uniq)
+         if [ -n "$CSV_FILES" ]; then
+            CSV_FILES_FULL=""
+            for file in $CSV_FILES; do
+                CSV_FILES_FULL="$CSV_FILES_FULL $SCRIPT_DIR/tax-redflush-rust/$file"
+            done
+            CSV_FILES="$CSV_FILES_FULL"
+         fi
+    fi
+else
+    echo_red "✗ 无 API 响应，无法获取 CSV 文件名"
+    exit 1
 fi
 
 if [ -z "$CSV_FILES" ]; then

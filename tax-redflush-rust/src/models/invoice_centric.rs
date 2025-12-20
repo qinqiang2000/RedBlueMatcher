@@ -437,4 +437,5 @@ pub struct MatchStats {
     pub invoices_used: usize,
     pub total_matched_amount: BigDecimal,
     pub total_candidate_invoices: usize,
+    pub output_file: Option<String>,
 }
